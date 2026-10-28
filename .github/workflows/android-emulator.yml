@@ -34,7 +34,7 @@ jobs:
         run: |
           test "$(git -C vendor/llama.cpp rev-parse HEAD)" = 522021325546ea322b0b1e58a50f9dbf03a5f197
           sha256sum -c gradle/wrapper/gradle-wrapper.jar.sha256
-          ./gradlew --no-daemon -PlfmAbi=x86_64 :app:assembleDebug :app:assembleDebugAndroidTest --write-locks --console=plain
+          ./gradlew --no-daemon -PlfmAbi=x86_64 :app:assembleDebug :app:assembleDebugAndroidTest --console=plain
       - name: Fetch and verify actual model into temporary runner storage
         run: python3 scripts/fetch-validation-model.py "$RUNNER_TEMP/lfm-validation.gguf"
       - name: Enable accelerated emulator access

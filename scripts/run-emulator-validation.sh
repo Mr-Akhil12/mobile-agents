@@ -38,7 +38,7 @@ test "$(adb shell settings get global wifi_on | tr -d '\r')" = 0
     adb shell settings get global mobile_data
     adb shell ip route
     adb shell cat /proc/meminfo
-    "$ANDROID_HOME/emulator/emulator" -version
+    cat "$ANDROID_HOME/emulator/source.properties"
     sdkmanager --list_installed
     git rev-parse HEAD
     sha256sum app/build/outputs/apk/debug/app-debug.apk
