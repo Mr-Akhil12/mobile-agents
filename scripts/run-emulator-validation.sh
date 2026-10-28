@@ -9,7 +9,7 @@ collect_evidence() {
     for report in core.json restart.json core-ui.json restart-ui.json; do
         adb exec-out run-as dev.lfm.mobile cat "files/validation/$report" > "validation-evidence/$report" 2>/dev/null || true
     done
-    for shot in onboarding real-chat cancel-recovery history-after-process-restart cleared-chat core-final restart-final; do
+    for shot in onboarding saf-import real-chat cancel-recovery history-after-process-restart cleared-chat core-final restart-final; do
         adb exec-out run-as dev.lfm.mobile cat "files/validation/$shot.png" > "validation-evidence/$shot.png" 2>/dev/null || true
     done
     find validation-evidence -type f -empty -delete
@@ -26,6 +26,7 @@ adb logcat -c
 # this tests ModelStore's real copy/hash path, NOT the SAF picker UI.
 adb shell run-as dev.lfm.mobile mkdir -p files/fixtures
 adb shell run-as dev.lfm.mobile sh -c '"cat > files/fixtures/model.gguf"' < "$model_path"
+adb push "$model_path" /sdcard/Download/LFM3-1.7B-Q5_K_M.gguf
 adb shell svc wifi disable
 adb shell svc data disable
 adb shell cmd connectivity airplane-mode enable

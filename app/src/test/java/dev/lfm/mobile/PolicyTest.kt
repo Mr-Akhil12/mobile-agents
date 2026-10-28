@@ -19,12 +19,31 @@ class PolicyTest {
     @Test fun malformedArgumentsCannotExecute() {
         assertThrows(Exception::class.java) { ToolPolicy.validate("get_local_time", "[]") }
     }
+    @Test fun jsonWhitespaceInEmptyArgumentsAccepted() {
+        ToolPolicy.validate("get_local_time", " \t{ \r\n }\n")
+    }
+    @Test fun trailingArgumentDataCannotExecute() {
+        listOf("{} trailing", "{}{}", "{}[]").forEach {
+            assertThrows(IllegalArgumentException::class.java) { ToolPolicy.validate("get_local_time", it) }
+        }
+    }
+    @Test fun nonJsonEmptyObjectSyntaxCannotExecute() {
+        listOf("{/*comment*/}", "{;}", "\uFEFF{}", "null", "").forEach {
+            assertThrows(IllegalArgumentException::class.java) { ToolPolicy.validate("get_local_time", it) }
+        }
+    }
     @Test fun planningAndProtocolTextWithheld() {
         listOf("<think>secret</think>", "[Start thinking]test", "<tool_call>call", "We need to answer this").forEach {
             assertFalse(AnswerPolicy.safeForDisplay(it))
         }
     }
     @Test fun ordinaryAnswerRetained() { AnswerPolicy.validate("The device reports 16:00 SAST.") }
+    @Test fun partialPlanningPrefixWithheldUntilItDiverges() {
+        assertFalse(AnswerPolicy.safeForStreaming("We need"))
+        assertFalse(AnswerPolicy.safeForStreaming("I"))
+        assertTrue(AnswerPolicy.safeForStreaming("I can help."))
+        AnswerPolicy.validate("I") // A complete short answer is not a partial stream.
+    }
     @Test fun emptyAnswerRejected() {
         assertThrows(IllegalArgumentException::class.java) { AnswerPolicy.validate(" ") }
     }

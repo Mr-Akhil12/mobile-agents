@@ -14,6 +14,10 @@ jobs:
   emulator:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_COMPILERCHECK: content
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -24,17 +28,40 @@ jobs:
         with:
           distribution: temurin
           java-version: '17.0.21+9'
+          cache: gradle
+          cache-dependency-path: |
+            **/*.gradle.kts
+            **/gradle.lockfile
+            gradle/libs.versions.toml
       - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
         with:
           packages: platform-tools
           log-accepted-android-sdk-licenses: false
       - name: Install pinned build toolchain
         run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'ndk;28.0.13004108' 'cmake;3.22.1'
+      - name: Prepare bounded native compiler cache
+        run: |
+          if ! command -v ccache; then sudo apt-get update -qq && sudo apt-get install -y ccache; fi
+          ccache --max-size=1G
+          ccache --version
+      - uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        id: native-cache
+        with:
+          path: .ccache
+          key: lfm-x86_64-ndk28-5220213-${{ hashFiles('inference-native/**/*.cpp', 'inference-native/**/*.h', 'inference-native/CMakeLists.txt') }}
+          restore-keys: lfm-x86_64-ndk28-5220213-
       - name: Verify source pins and build real x86_64 JNI/test APKs
+        id: native-build
         run: |
           test "$(git -C vendor/llama.cpp rev-parse HEAD)" = 522021325546ea322b0b1e58a50f9dbf03a5f197
           sha256sum -c gradle/wrapper/gradle-wrapper.jar.sha256
-          ./gradlew --no-daemon -PlfmAbi=x86_64 :app:assembleDebug :app:assembleDebugAndroidTest --console=plain
+          ./gradlew --no-daemon -PlfmAbi=x86_64 -PlfmCcache=true :app:assembleDebug :app:assembleDebugAndroidTest --console=plain
+          ccache --show-stats
+      - uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684
+        if: always() && steps.native-build.outcome == 'success' && steps.native-cache.outputs.cache-hit != 'true'
+        with:
+          path: .ccache
+          key: ${{ steps.native-cache.outputs.cache-primary-key }}
       - name: Fetch and verify actual model into temporary runner storage
         run: python3 scripts/fetch-validation-model.py "$RUNNER_TEMP/lfm-validation.gguf"
       - name: Enable accelerated emulator access

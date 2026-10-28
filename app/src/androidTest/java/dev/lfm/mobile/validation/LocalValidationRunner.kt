@@ -158,6 +158,7 @@ class LocalValidationRunner : Instrumentation() {
             check(battery.getJSONObject("data").getInt("percent") in 0..100)
             check(!tools.execute("run_shell_command", "{}", "negative").getBoolean("success"))
             check(!tools.execute("get_local_time", "{\"extra\":1}", "args").getBoolean("success"))
+            check(!tools.execute("get_local_time", "{} trailing", "trailing").getBoolean("success"))
             evidence.put("AndroidClock", clock).put("emulatedBattery", battery)
         }
         val db = Room.databaseBuilder(targetContext, ChatDatabase::class.java, "validation-chat.db").build()
@@ -202,11 +203,24 @@ class LocalValidationRunner : Instrumentation() {
             catch (e: IllegalStateException) { rejected = e.message.orEmpty().contains("Import and load") }
             check(rejected)
         }
-        step("Compose_send_button_to_real_model_and_Room") {
+        step("Compose_SAF_picker_imports_actual_pinned_model") {
             launch()
             waitForText("Ready", 180000)
-            sendFromUi("Reply with only the word LOCAL.")
-            waitForText("Finished", 180000)
+            clickText("Models")
+            clickText("Unload and delete model")
+            waitForText("Model removed")
+            clickText("Models")
+            clickText("Import GGUF")
+            val roots = waitNode { it.contentDescription?.toString() == "Show roots" }
+            check(roots.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            clickText("Downloads")
+            clickText("LFM3-1.7B-Q5_K_M.gguf")
+            waitForText("Ready · verified local model", 180000)
+            screenshot("saf-import")
+        }
+        step("Compose_send_button_to_real_model_and_Room") {
+            val answer = completedUiTurn("Reply with only the word LOCAL.")
+            check(answer.content.contains("LOCAL"))
             waitForText("LFM · model answer")
             screenshot("real-chat")
         }
@@ -215,8 +229,7 @@ class LocalValidationRunner : Instrumentation() {
             waitForText("Thinking locally")
             clickText("Cancel")
             waitForText("Cancelled", 30000)
-            sendFromUi("Reply with only the word LOCAL.")
-            waitForText("Finished", 180000)
+            check(completedUiTurn("Reply with only the word LOCAL.").content.contains("LOCAL"))
             screenshot("cancel-recovery")
             closeActivity()
         }
@@ -237,8 +250,9 @@ class LocalValidationRunner : Instrumentation() {
             screenshot("history-after-process-restart")
         }
         step("reply_after_process_restart_and_model_reload") {
-            sendFromUi("Say hello in one short sentence.")
-            waitForText("Finished", 180000)
+            val answer = completedUiTurn("Say hello in one short sentence.")
+            check(answer.content.isNotBlank())
+            evidence.put("postRestartReply", answer.content)
         }
         step("clear_chat_removes_Room_messages") {
             clickText("Clear chat")
@@ -280,7 +294,7 @@ class LocalValidationRunner : Instrumentation() {
         while (SystemClock.elapsedRealtime() < end) {
             var node = find(uiAutomation.rootInActiveWindow) { it.text?.toString() == text }
             while (node != null && !node.isClickable) node = node.parent
-            if (node?.isEnabled == true && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return
+            if (node?.isEnabled == true && node.isVisibleToUser && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return
             SystemClock.sleep(100)
         }
         error("Timed out waiting for enabled clickable $text")
@@ -294,12 +308,31 @@ class LocalValidationRunner : Instrumentation() {
         waitNode { it.isEditable && it.text?.toString() == text }
         clickText("Send")
     }
+    private suspend fun completedUiTurn(text: String): ChatMessage {
+        val db = Room.databaseBuilder(targetContext, ChatDatabase::class.java, "lfm-chats.db").build()
+        try {
+            val before = db.messages().all().lastOrNull()?.id ?: 0L
+            sendFromUi(text)
+            val end = SystemClock.elapsedRealtime() + 180000
+            while (SystemClock.elapsedRealtime() < end) {
+                val fresh = db.messages().all().filter { it.id > before }
+                fresh.firstOrNull { it.role == "error" }?.let { error("App rejected turn: ${it.content}") }
+                fresh.lastOrNull { it.role == "assistant" }?.let {
+                    waitForText("Finished")
+                    return it
+                }
+                SystemClock.sleep(200)
+            }
+            error("No new persisted assistant reply within 180 seconds")
+        } finally { db.close() }
+    }
     private fun dumpUi() {
         fun snapshot(node: AccessibilityNodeInfo?, depth: Int): JSONObject {
             if (node == null || depth > 20) return JSONObject()
             val children = JSONArray()
             for (i in 0 until node.childCount) children.put(snapshot(node.getChild(i), depth + 1))
             return JSONObject().put("text", node.text?.toString()).put("class", node.className?.toString())
+                .put("description", node.contentDescription?.toString()).put("visible", node.isVisibleToUser)
                 .put("enabled", node.isEnabled).put("clickable", node.isClickable)
                 .put("editable", node.isEditable).put("children", children)
         }

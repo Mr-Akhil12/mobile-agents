@@ -25,11 +25,13 @@ class AgentCoordinator(private val dao: MessageDao, private val tools: ToolRegis
         messages.put(user)
         dao.insert(ChatMessage(turnId = turn, role = "user", content = question, contextJson = user.toString()))
         var used = 0
-        repeat(4) {
+        var finalRetry = false
+        // Three tool iterations, one final response, and at most one final-answer repair.
+        repeat(5) {
             currentCoroutineContext().ensureActive()
-            status("Thinking locally")
+            status(if (finalRetry) "Retrying final answer locally" else "Thinking locally")
             val response = JSONObject(InferenceRepository.generate(messages.toString(), tools.definitions) { text ->
-                if (AnswerPolicy.safeForDisplay(text)) stream(text)
+                if (AnswerPolicy.safeForStreaming(text)) stream(text)
             })
             currentCoroutineContext().ensureActive()
             val calls = response.optJSONArray("tool_calls")
@@ -59,6 +61,16 @@ class AgentCoordinator(private val dao: MessageDao, private val tools: ToolRegis
                 stream("")
             } else {
                 val answer = response.optString("content")
+                if ((answer.isBlank() || !AnswerPolicy.safeForDisplay(answer)) && !finalRetry) {
+                    finalRetry = true
+                    stream("")
+                    // Never replay/store the rejected planning text. The repair is a
+                    // transient user-role instruction, not a fabricated model answer.
+                    messages.put(JSONObject().put("role", "user").put("content",
+                        "Give only your final answer, directly. Do not include analysis, planning, " +
+                        "self-instructions or protocol markers. Answer the original question: $question"))
+                    return@repeat
+                }
                 AnswerPolicy.validate(answer)
                 // Reasoning is only retained transiently during the active tool cycle.
                 response.remove("reasoning_content")

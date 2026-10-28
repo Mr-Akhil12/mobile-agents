@@ -9,7 +9,13 @@ android {
     defaultConfig {
         minSdk = 28
         ndk { abiFilters += lfmAbi }
-        externalNativeBuild { cmake { arguments += "-DCMAKE_BUILD_TYPE=Release"; cppFlags += "-std=c++17" } }
+        externalNativeBuild { cmake {
+            arguments += "-DCMAKE_BUILD_TYPE=Release"
+            if (providers.gradleProperty("lfmCcache").getOrElse("false").toBoolean()) {
+                arguments += listOf("-DCMAKE_C_COMPILER_LAUNCHER=ccache", "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache")
+            }
+            cppFlags += "-std=c++17"
+        } }
     }
     externalNativeBuild { cmake { path = file("CMakeLists.txt"); version = "3.22.1" } }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
