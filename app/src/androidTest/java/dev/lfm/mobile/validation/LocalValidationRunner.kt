@@ -4,10 +4,13 @@ import android.app.Activity
 import android.app.Instrumentation
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
 import android.os.SystemClock
+import android.os.StatFs
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.room.Room
 import dev.lfm.mobile.MainActivity
@@ -19,6 +22,7 @@ import dev.lfm.mobile.inference.ModelStore
 import dev.lfm.mobile.tools.ToolRegistry
 import dev.lfm.nativebridge.NativeInference
 import java.io.File
+import java.io.FileOutputStream
 import java.time.ZonedDateTime
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
@@ -131,6 +135,32 @@ class LocalValidationRunner : Instrumentation() {
             // Free the source copy only after app import verifies it.
             check(fixture.delete())
         }
+        step("low_storage_import_rejected_and_verified_model_preserved") {
+            val filler = File(targetContext.filesDir, "fixtures/low-space.dat")
+            try {
+                val targetFree = ModelStore.SIZE + 128L * 1024 * 1024
+                var written = 0L
+                FileOutputStream(filler).use { stream ->
+                    val chunk = ByteArray(4 * 1024 * 1024) { 1 }
+                    while (StatFs(targetContext.filesDir.path).availableBytes > targetFree) {
+                        check(written < 6L * 1024 * 1024 * 1024) { "Refusing to allocate more than 6 GB of test filler" }
+                        stream.write(chunk)
+                        written += chunk.size
+                    }
+                    stream.fd.sync()
+                }
+                val available = StatFs(targetContext.filesDir.path).availableBytes
+                check(available < ModelStore.SIZE + 256L * 1024 * 1024)
+                var rejected = false
+                try { models.importModel(Uri.fromFile(models.model)) {} }
+                catch (e: IllegalStateException) { rejected = e.message.orEmpty().contains("1.5 GB free") }
+                check(rejected) { "Low-storage import was not rejected" }
+                check(models.model.length() == ModelStore.SIZE)
+                check(!File(models.model.parentFile, "text.gguf.partial").exists())
+                evidence.put("lowStorageAvailableBytes", available).put("testFillerBytes", written)
+            } finally { check(!filler.exists() || filler.delete()) { "Cannot remove disposable storage fixture" } }
+            check(StatFs(targetContext.filesDir.path).availableBytes > ModelStore.SIZE + 256L * 1024 * 1024)
+        }
         step("Android_JNI_load_and_stream_real_model") {
             InferenceRepository.load(models.model.path)
             val chunks = AtomicInteger()
@@ -231,6 +261,16 @@ class LocalValidationRunner : Instrumentation() {
             waitForText("Cancelled", 30000)
             check(completedUiTurn("Reply with only the word LOCAL.").content.contains("LOCAL"))
             screenshot("cancel-recovery")
+        }
+        step("Compose_rotation_preserves_history_and_native_session") {
+            rotate(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE)
+            check(activity!!.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE)
+            check(completedUiTurn("Reply with only the word LOCAL.").content.contains("LOCAL"))
+            screenshot("landscape-chat")
+            rotate(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT)
+            check(activity!!.resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT)
+            waitNode { it.isEditable && it.isEnabled }
+            screenshot("portrait-after-rotation")
             closeActivity()
         }
     }
@@ -258,6 +298,7 @@ class LocalValidationRunner : Instrumentation() {
             clickText("Clear chat")
             clickText("Delete history")
             waitForText("History cleared")
+            waitForText("Your conversations stay on this phone.")
             val db = Room.databaseBuilder(targetContext, ChatDatabase::class.java, "lfm-chats.db").build()
             try { check(db.messages().all().isEmpty()) } finally { db.close() }
             screenshot("cleared-chat")
@@ -272,6 +313,14 @@ class LocalValidationRunner : Instrumentation() {
     private fun closeActivity() {
         activity?.let { a -> runOnMainSync { a.finish() }; waitForIdleSync() }
         activity = null
+    }
+    private fun rotate(orientation: Int) {
+        val monitor = addMonitor(MainActivity::class.java.name, null, false)
+        try {
+            runOnMainSync { checkNotNull(activity).requestedOrientation = orientation }
+            activity = checkNotNull(waitForMonitorWithTimeout(monitor, 30000)) { "Activity did not recreate after rotation" }
+            waitForIdleSync()
+        } finally { removeMonitor(monitor) }
     }
     private fun find(node: AccessibilityNodeInfo?, predicate: (AccessibilityNodeInfo) -> Boolean): AccessibilityNodeInfo? {
         if (node == null) return null

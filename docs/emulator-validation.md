@@ -8,7 +8,7 @@ The job downloads the trusted model manifest URL, verifies size/SHA-256 on the r
 
 Reports include the actual Android clock evidence and model follow-up, screenshots of the real app, JNI/model checks and lifecycle results. Process force-stop between phases tests persistent Room history/model reload. No fixtures, mocks or synthetic responses substitute for model inference. The battery is naturally emulator-provided state, not a Xiaomi battery measurement.
 
-Not covered: Xiaomi ARM64/HyperOS, low-memory/low-storage behavior, rotation/background stress, microphone/audio hardware, thermals or physical battery/performance. SAF coverage is pending the newly added test. Omni is not implemented or tested. Review docs/device-validation-handoff.md for the physical acceptance pass.
+Verified run 40782638072 passed all 16 checks, including actual SAF import and force-stop/restart. A subsequent patch adds low-storage recovery and landscape/portrait recreation; those two new checks are pending actual execution. Not covered: Xiaomi ARM64/HyperOS, low-memory/background stress, microphone/audio hardware, thermals or physical battery/performance. Omni is not implemented or tested. Review docs/device-validation-handoff.md for the physical acceptance pass.
 
 Artifacts retain for three days; only allowlisted test reports/screenshots/logs and Gradle lockfiles are uploaded. Model bytes stay temporary and are removed. A failing run is evidence of a failing test/setup, never a device pass. The workflow is not yet proven until an actual successful run has been inspected.
 
