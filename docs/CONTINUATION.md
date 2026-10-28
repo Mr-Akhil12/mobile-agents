@@ -1,0 +1,25 @@
+# LFM durable continuation checkpoint
+
+Authoritative scope: docs/MASTER_PLAN.md. Deadline **Friday 30 October 2026, 16:00 SAST**. Preserve the text-first candidate while adding test infrastructure. No automatic merge or verified release tag. Xiaomi testing remains pending; no Omni advancement before text/device gate review.
+
+## Published baseline
+
+- Personal connection is fixed: Mr-Akhil12 installation 176335068 is visible and writes work. Do not repeat earlier permission advice.
+- PR #1: https://github.com/Mr-Akhil12/mobile-agents/pull/1 . Head 66c8fc2eaae11ff6e623102d04cfeb258515e1fe.
+- CI run 40774787452 passed APK build, seven policy tests, and lint. It built PR merge commit 25bca7449b144c65d0dbe27ec61e04d49fab2195. APK artifact 12855090570, validation artifact 12853394515.
+- Verified CI APK SHA-256: 23d9ee89003d420a7a6122cbc4c0f473cf1bd74e0a86429a08291e2ef4796a42. Original handoff APK is different; do not mix candidate evidence/certificates.
+- Restored implementation c26114fb55f94be81cf098fbccd38fc0d2c6ddf6 has exactly the same tree as original bundled bd2c04099a8347ebed868d39852b4ea1bbc12fd4. Commits differ because of API reconstruction metadata.
+
+## Emulator work in progress
+
+Branch feature/emulator-validation is based on PR #1 and keeps the ARM64 default. Property `-PlfmAbi=x86_64` builds the same JNI implementation for a generic Android API 35 x86_64 emulator. It is not a Xiaomi simulator.
+
+New test APK contains a dependency-free Instrumentation harness, invoked by scripts/run-emulator-validation.sh. It tests real model import/hash/corrupt/cancellation cleanup, JNI streaming/inference, OS clock/battery and rejected tools, actual AgentCoordinator time-tool cycle, contextual turns, native cancellation/recovery/unload, Compose send, actual force-stop/restart/history and clear-chat. It uses a file URI to test ModelStore; the SAF file-picker interaction remains a physical/manual gap. Emulator battery data is synthetic Android state; timing is not phone performance. Do not count written tests as passed before a real successful run and complete JSON evidence.
+
+The CI job currently uses `--write-locks` to capture newly exercised instrumentation configurations. After the first build, download its small evidence artifact, commit generated app/native/settings locks, remove `--write-locks`, and verify against the committed locks. No GGUF goes into Git or uploaded artifacts. Model download is checksum pinned and temporary; evidence retains for three days. Action commits and build toolchain are pinned; emulator/system-image versions are recorded at runtime, not guaranteed byte-reproducible.
+
+Inspect actual workflow results, fix failures with scoped commits, and update this checkpoint with real run/PR/head identifiers. Keep changes isolated from the already-green PR #1. No physical device is attached.
+
+## Autonomy and usage
+
+User authorized continued development and emulator testing, and plans Xiaomi 15T testing when awake. They requested stopping near 5% usage remaining (3–7%) and resuming after reset. This session has no exposed live usage percentage/reset telemetry, so that threshold cannot be reliably monitored. Do not invent it or buy credits/resets. A one-time continuation was initially scheduled five hours after setup, then changed at the user’s explicit request to **29 October 2026, 03:45 SAST**; that time is a fallback retry, not a detected reset or a guarantee the run can bypass account limits. Check existing automations before creating duplicates. Continue only from durable source and current CI evidence; avoid concurrent edits.

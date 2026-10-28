@@ -16,4 +16,7 @@ local.properties
 **/build/
 **/.cxx/
 captures/
+__pycache__/
+*.pyc
+validation-evidence/
 !gradle/wrapper/gradle-wrapper.jar

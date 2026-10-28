@@ -1,4 +1,6 @@
 plugins { alias(libs.plugins.android.library); alias(libs.plugins.kotlin.android) }
+val lfmAbi = providers.gradleProperty("lfmAbi").getOrElse("arm64-v8a")
+require(lfmAbi in setOf("arm64-v8a", "x86_64")) { "Unsupported lfmAbi" }
 android {
     namespace = "dev.lfm.nativebridge"
     compileSdk = 35
@@ -6,7 +8,7 @@ android {
     ndkVersion = "28.0.13004108"
     defaultConfig {
         minSdk = 28
-        ndk { abiFilters += "arm64-v8a" }
+        ndk { abiFilters += lfmAbi }
         externalNativeBuild { cmake { arguments += "-DCMAKE_BUILD_TYPE=Release"; cppFlags += "-std=c++17" } }
     }
     externalNativeBuild { cmake { path = file("CMakeLists.txt"); version = "3.22.1" } }

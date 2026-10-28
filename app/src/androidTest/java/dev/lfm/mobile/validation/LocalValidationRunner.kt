@@ -1,0 +1,279 @@
+package dev.lfm.mobile.validation
+
+import android.app.Activity
+import android.app.Instrumentation
+import android.content.Intent
+import android.graphics.Bitmap
+import android.net.Uri
+import android.os.Bundle
+import android.os.SystemClock
+import android.view.accessibility.AccessibilityNodeInfo
+import androidx.room.Room
+import dev.lfm.mobile.MainActivity
+import dev.lfm.mobile.agent.AgentCoordinator
+import dev.lfm.mobile.data.ChatDatabase
+import dev.lfm.mobile.data.ChatMessage
+import dev.lfm.mobile.inference.InferenceRepository
+import dev.lfm.mobile.inference.ModelStore
+import dev.lfm.mobile.tools.ToolRegistry
+import dev.lfm.nativebridge.NativeInference
+import java.io.File
+import java.time.ZonedDateTime
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.runBlocking
+import org.json.JSONArray
+import org.json.JSONObject
+
+/** Test-APK-only harness using Android's Instrumentation API; no production test hooks.
+ * The shell driver checks the JSON report, not am instrument's frequently-zero exit status.
+ */
+class LocalValidationRunner : Instrumentation() {
+    private lateinit var phase: String
+    private val results = JSONArray()
+    private val evidence = JSONObject()
+    private lateinit var output: File
+    private var activity: Activity? = null
+
+    override fun onCreate(arguments: Bundle?) {
+        phase = arguments?.getString("phase") ?: "core"
+        super.onCreate(arguments)
+        start()
+    }
+
+    override fun onStart() {
+        output = File(targetContext.filesDir, "validation").apply { mkdirs() }
+        var passed = false
+        try {
+            runBlocking {
+                when (phase) {
+                    "core" -> coreTests()
+                    "restart" -> restartTests()
+                    else -> error("Unknown validation phase: $phase")
+                }
+            }
+            passed = true
+        } catch (t: Throwable) {
+            sendStatus(-2, Bundle().apply { putString("stream", "Validation failed: ${t.stackTraceToString()}\n") })
+        } finally {
+            runCatching { screenshot("$phase-final") }
+            runCatching { NativeInference.unload() }
+            val report = JSONObject().put("phase", phase).put("passed", passed)
+                .put("evidenceLevel", "Android x86_64 emulator; NOT Xiaomi/ARM64 validation")
+                .put("device", android.os.Build.MODEL).put("sdk", android.os.Build.VERSION.SDK_INT)
+                .put("abis", JSONArray(android.os.Build.SUPPORTED_ABIS.toList()))
+                .put("tests", results).put("evidence", evidence)
+            File(output, "$phase.json").writeText(report.toString(2))
+            finish(if (passed) Activity.RESULT_OK else Activity.RESULT_CANCELED,
+                Bundle().apply { putString("stream", "LFM $phase passed=$passed; ${results.length()} checks\n") })
+        }
+    }
+
+    private suspend fun step(name: String, action: suspend () -> Unit) {
+        val start = SystemClock.elapsedRealtime()
+        val record = JSONObject().put("name", name)
+        try {
+            action()
+            record.put("passed", true)
+            sendStatus(0, Bundle().apply { putString("stream", "PASS $name\n") })
+        } catch (t: Throwable) {
+            record.put("passed", false).put("error", t.stackTraceToString())
+            throw t
+        } finally {
+            record.put("durationMs", SystemClock.elapsedRealtime() - start)
+            results.put(record)
+        }
+    }
+
+    private suspend fun coreTests() {
+        val models = ModelStore(targetContext)
+        val fixture = File(targetContext.filesDir, "fixtures/model.gguf")
+        check(fixture.length() == ModelStore.SIZE) { "Missing full pinned GGUF fixture" }
+        step("native_UI_launch_without_model") {
+            launch()
+            waitForText("Local-first · Text prototype")
+            waitForText("Import the official text GGUF to begin")
+            screenshot("onboarding")
+            closeActivity()
+        }
+        step("corrupt_import_rejected_without_partial_model") {
+            val bad = File(targetContext.cacheDir, "bad.gguf").apply { writeText("not a GGUF") }
+            var rejected = false
+            try { models.importModel(Uri.fromFile(bad)) {} }
+            catch (e: IllegalStateException) { rejected = e.message.orEmpty().contains("Checksum mismatch") }
+            finally { bad.delete() }
+            check(rejected && !models.model.exists())
+            check(!File(models.model.parentFile, "text.gguf.partial").exists())
+        }
+        step("cancelled_import_removes_partial_file") {
+            coroutineScope {
+                val imported = AtomicInteger()
+                val pending = async {
+                    models.importModel(Uri.fromFile(fixture)) {
+                        imported.incrementAndGet()
+                        throw CancellationException("Scripted import cancellation")
+                    }
+                }
+                try { pending.await(); error("Import did not cancel") }
+                catch (_: CancellationException) { check(imported.get() > 0) }
+            }
+            check(!models.model.exists())
+            check(!File(models.model.parentFile, "text.gguf.partial").exists())
+        }
+        step("real_model_copy_size_and_SHA256_import") {
+            val hash = models.importModel(Uri.fromFile(fixture)) {}
+            check(hash == ModelStore.SHA256 && models.model.length() == ModelStore.SIZE)
+            evidence.put("modelSHA256", hash)
+            // Free the source copy only after app import verifies it.
+            check(fixture.delete())
+        }
+        step("Android_JNI_load_and_stream_real_model") {
+            InferenceRepository.load(models.model.path)
+            val chunks = AtomicInteger()
+            val response = JSONObject(InferenceRepository.generate(
+                """[{"role":"user","content":"Reply with only the word LOCAL."}]""", "[]") {
+                if (it.isNotBlank()) chunks.incrementAndGet()
+            })
+            check(response.optString("content").contains("LOCAL"))
+            check(chunks.get() > 0)
+            evidence.put("localReply", response.getString("content"))
+        }
+        step("actual_Android_clock_battery_and_policy") {
+            val tools = ToolRegistry(targetContext)
+            val clock = tools.execute("get_local_time", "{}", "emulator-clock")
+            check(clock.getBoolean("success"))
+            val seen = ZonedDateTime.parse(clock.getJSONObject("data").getString("datetime"))
+            check(kotlin.math.abs(seen.toInstant().toEpochMilli() - System.currentTimeMillis()) < 5000)
+            val battery = tools.execute("get_battery_status", "{}", "emulator-battery")
+            check(battery.getBoolean("success"))
+            check(battery.getJSONObject("data").getInt("percent") in 0..100)
+            check(!tools.execute("run_shell_command", "{}", "negative").getBoolean("success"))
+            check(!tools.execute("get_local_time", "{\"extra\":1}", "args").getBoolean("success"))
+            evidence.put("AndroidClock", clock).put("emulatedBattery", battery)
+        }
+        val db = Room.databaseBuilder(targetContext, ChatDatabase::class.java, "validation-chat.db").build()
+        try {
+            val agent = AgentCoordinator(db.messages(), ToolRegistry(targetContext))
+            step("model_Android_time_tool_round_trip_and_evidence") {
+                db.messages().clear()
+                agent.answer("What time is it on my phone? Use get_local_time and include the exact ISO datetime from the tool result.", {}, {})
+                val rows = db.messages().all()
+                val tool = rows.firstOrNull { it.role == "tool" && it.content.startsWith("get_local_time\n") }
+                    ?: error("Model produced no actual Android clock tool evidence")
+                val observed = JSONObject(tool.content.substringAfter('\n'))
+                check(observed.getBoolean("success"))
+                check(rows.last().role == "assistant" && rows.last().content.isNotBlank())
+                val timestamp = observed.getJSONObject("data").getString("datetime")
+                check(rows.last().content.contains(timestamp.take(16))) { "Follow-up did not repeat the observed date and minute" }
+                evidence.put("timeToolEvidence", observed).put("timeFollowup", rows.last().content)
+            }
+            step("two_consecutive_contextual_model_turns") {
+                agent.answer("Remember the test word mango. Reply briefly.", {}, {})
+                agent.answer("What test word did I just give you?", {}, {})
+                check(db.messages().all().last().content.contains("mango", ignoreCase = true))
+            }
+        } finally { db.close() }
+        step("native_cancellation_then_successful_generation") {
+            var cancelled = false
+            try {
+                InferenceRepository.generate(
+                    """[{"role":"user","content":"Write a long story about a journey."}]""", "[]") {
+                    if (it.isNotBlank()) InferenceRepository.cancel()
+                }
+            } catch (e: IllegalStateException) { cancelled = e.message == "Cancelled" }
+            check(cancelled)
+            val recovery = JSONObject(InferenceRepository.generate(
+                """[{"role":"user","content":"Reply with only the word LOCAL."}]""", "[]") {})
+            check(recovery.optString("content").contains("LOCAL"))
+        }
+        step("unloaded_JNI_context_rejects_generation") {
+            InferenceRepository.unload()
+            var rejected = false
+            try { InferenceRepository.generate("[]", "[]") {} }
+            catch (e: IllegalStateException) { rejected = e.message.orEmpty().contains("Import and load") }
+            check(rejected)
+        }
+        step("Compose_send_button_to_real_model_and_Room") {
+            launch()
+            waitForText("Ready", 180000)
+            sendFromUi("Reply with only the word LOCAL.")
+            waitForText("Finished", 180000)
+            waitForText("LFM · model answer")
+            screenshot("real-chat")
+            closeActivity()
+        }
+    }
+
+    private suspend fun restartTests() {
+        step("Room_history_survives_actual_process_restart") {
+            // The shell driver force-stops the process between core and restart.
+            val db = Room.databaseBuilder(targetContext, ChatDatabase::class.java, "lfm-chats.db").build()
+            try {
+                val rows = db.messages().all()
+                check(rows.any { it.role == "user" && it.content == "Reply with only the word LOCAL." })
+                check(rows.last().role == "assistant" && rows.last().content.contains("LOCAL"))
+            } finally { db.close() }
+            launch()
+            waitForText("LFM · model answer")
+            waitForText("Ready", 180000)
+            screenshot("history-after-process-restart")
+        }
+        step("reply_after_process_restart_and_model_reload") {
+            sendFromUi("Say hello in one short sentence.")
+            waitForText("Finished", 180000)
+        }
+        step("clear_chat_removes_Room_messages") {
+            clickText("Clear chat")
+            clickText("Delete history")
+            waitForText("History cleared")
+            val db = Room.databaseBuilder(targetContext, ChatDatabase::class.java, "lfm-chats.db").build()
+            try { check(db.messages().all().isEmpty()) } finally { db.close() }
+            screenshot("cleared-chat")
+            closeActivity()
+        }
+    }
+
+    private fun launch() {
+        activity = startActivitySync(Intent(targetContext, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        waitForIdleSync()
+    }
+    private fun closeActivity() {
+        activity?.let { a -> runOnMainSync { a.finish() }; waitForIdleSync() }
+        activity = null
+    }
+    private fun find(node: AccessibilityNodeInfo?, predicate: (AccessibilityNodeInfo) -> Boolean): AccessibilityNodeInfo? {
+        if (node == null) return null
+        if (predicate(node)) return node
+        for (i in 0 until node.childCount) find(node.getChild(i), predicate)?.let { return it }
+        return null
+    }
+    private fun waitNode(timeout: Long = 30000, predicate: (AccessibilityNodeInfo) -> Boolean): AccessibilityNodeInfo {
+        val end = SystemClock.elapsedRealtime() + timeout
+        while (SystemClock.elapsedRealtime() < end) {
+            find(uiAutomation.rootInActiveWindow, predicate)?.let { return it }
+            SystemClock.sleep(200)
+        }
+        error("Timed out waiting for UI node; $phase")
+    }
+    private fun waitForText(text: String, timeout: Long = 30000) =
+        waitNode(timeout) { it.text?.toString()?.contains(text) == true }
+    private fun clickText(text: String) {
+        var node: AccessibilityNodeInfo? = waitNode { it.text?.toString() == text }
+        while (node != null && !node.isClickable) node = node.parent
+        check(node?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true) { "Cannot click $text" }
+    }
+    private fun sendFromUi(text: String) {
+        val field = waitNode { it.isEditable && it.isEnabled }
+        check(field.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, Bundle().apply {
+            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+        }))
+        clickText("Send")
+    }
+    private fun screenshot(name: String) {
+        val bitmap = uiAutomation.takeScreenshot() ?: error("Screenshot unavailable")
+        File(output, "$name.png").outputStream().use { check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
+        bitmap.recycle()
+    }
+}
