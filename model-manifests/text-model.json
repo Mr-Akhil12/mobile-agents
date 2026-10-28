@@ -1,0 +1,11 @@
+{
+  "model": "LiquidAI/LFM3-1.7B-GGUF",
+  "revision": "4b423c332fd97961416f2e8b69467758fd27370d",
+  "file": "LFM3-1.7B-Q5_K_M.gguf",
+  "bytes": 1258663200,
+  "sha256": "41e51fb0be5f472d323055f2734d986d5a2429570973508fa6322f3f07f6d7f3",
+  "license": "LFM Open License v1.0",
+  "license_url": "https://www.liquid.ai/lfm-license",
+  "llama_cpp_commit": "522021325546ea322b0b1e58a50f9dbf03a5f197",
+  "source": "https://huggingface.co/LiquidAI/LFM3-1.7B-GGUF/resolve/4b423c332fd97961416f2e8b69467758fd27370d/LFM3-1.7B-Q5_K_M.gguf"
+}
