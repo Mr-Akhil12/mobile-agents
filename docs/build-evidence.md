@@ -34,4 +34,6 @@ No physical Android device is attached. APK launch, Android JNI load/generation,
 
 ## GitHub publication status
 
+**Continuation update:** the repaired personal connection now exposes the Mr-Akhil12 installation and accepts branch/Git Data writes. The original implementation is restored as `c26114fb55f94be81cf098fbccd38fc0d2c6ddf6`, with source tree identical to bundled `bd2c04099a8347ebed868d39852b4ea1bbc12fd4`. See [publication recovery](publication-handoff.md). The following paragraph records the earlier blocked session. No CI or physical success is implied by restoring source.
+
 The personal-account repository is public and readable. Contents-write and branch-create calls both returned HTTP 403 Resource not accessible by integration. The personal connection's installation lookup reports only a different account's installation; direct git push also has no authorized credential configured. No remote implementation commit, pull request or CI run may be claimed unless publication subsequently succeeds. Local commits and deliverable artifacts must preserve the work while access is unresolved.

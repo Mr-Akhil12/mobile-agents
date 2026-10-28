@@ -6,6 +6,8 @@ This milestone implements text chat, local Room history, verified GGUF import, s
 
 ## Install on Xiaomi 15T
 
+For the supplied pre-CI candidate, start with the [device-validation handoff](docs/device-validation-handoff.md) and [blank results sheet](docs/device-validation-results.md). Publication recovery is documented [here](docs/publication-handoff.md); the bundled APK is available even while GitHub publication is blocked.
+
 1. Download the `lfm-arm64-debug-<commit>` ZIP from the repository's **Actions > Android native build > successful run > Artifacts**. Extract `app-debug.apk`. Builds are debug-signed test APKs, not store releases. A CI artifact exists only after the workflow actually succeeds.
 2. Transfer the APK to your phone, open it in Files, and allow that app to install unknown apps when Android asks. No root, Termux, login, backend, or API key is needed. Android 9/API 28+ and arm64 are required; Xiaomi runtime remains unverified.
 3. Open **LFM > Models > Model license**, review the terms, then **Official model download**. Download `LFM3-1.7B-Q5_K_M.gguf` from the pinned LiquidAI revision. You may instead copy this exact file from your existing model collection to Downloads via Android's file picker. The app cannot access Termux private storage directly.
