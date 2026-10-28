@@ -6,12 +6,13 @@ mkdir -p validation-evidence
 collect_evidence() {
     adb logcat -d > validation-evidence/logcat.txt 2>&1 || true
     adb shell run-as dev.lfm.mobile ls files/validation > validation-evidence/device-files.txt 2>&1 || true
-    for report in core.json restart.json; do
+    for report in core.json restart.json core-ui.json restart-ui.json; do
         adb exec-out run-as dev.lfm.mobile cat "files/validation/$report" > "validation-evidence/$report" 2>/dev/null || true
     done
-    for shot in onboarding real-chat history-after-process-restart cleared-chat core-final restart-final; do
+    for shot in onboarding real-chat cancel-recovery history-after-process-restart cleared-chat core-final restart-final; do
         adb exec-out run-as dev.lfm.mobile cat "files/validation/$shot.png" > "validation-evidence/$shot.png" 2>/dev/null || true
     done
+    find validation-evidence -type f -empty -delete
 }
 trap collect_evidence EXIT
 

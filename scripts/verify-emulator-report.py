@@ -15,6 +15,7 @@ expected = {
         "model_Android_time_tool_round_trip_and_evidence", "two_consecutive_contextual_model_turns",
         "native_cancellation_then_successful_generation", "unloaded_JNI_context_rejects_generation",
         "Compose_send_button_to_real_model_and_Room",
+        "Compose_cancel_then_send_next_real_model_turn",
     ],
     "restart": ["Room_history_survives_actual_process_restart", "reply_after_process_restart_and_model_reload",
                 "clear_chat_removes_Room_messages"],

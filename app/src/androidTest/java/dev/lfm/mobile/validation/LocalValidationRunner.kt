@@ -3,6 +3,7 @@ package dev.lfm.mobile.validation
 import android.app.Activity
 import android.app.Instrumentation
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Bundle
@@ -59,6 +60,7 @@ class LocalValidationRunner : Instrumentation() {
             sendStatus(-2, Bundle().apply { putString("stream", "Validation failed: ${t.stackTraceToString()}\n") })
         } finally {
             runCatching { screenshot("$phase-final") }
+            runCatching { dumpUi() }
             runCatching { NativeInference.unload() }
             val report = JSONObject().put("phase", phase).put("passed", passed)
                 .put("evidenceLevel", "Android x86_64 emulator; NOT Xiaomi/ARM64 validation")
@@ -141,6 +143,11 @@ class LocalValidationRunner : Instrumentation() {
             evidence.put("localReply", response.getString("content"))
         }
         step("actual_Android_clock_battery_and_policy") {
+            val permissions = targetContext.packageManager.getPackageInfo(
+                targetContext.packageName, PackageManager.GET_PERMISSIONS).requestedPermissions.orEmpty()
+            check("android.permission.INTERNET" !in permissions)
+            check("android.permission.RECORD_AUDIO" !in permissions)
+            evidence.put("requestedPermissions", JSONArray(permissions.toList()))
             val tools = ToolRegistry(targetContext)
             val clock = tools.execute("get_local_time", "{}", "emulator-clock")
             check(clock.getBoolean("success"))
@@ -202,6 +209,15 @@ class LocalValidationRunner : Instrumentation() {
             waitForText("Finished", 180000)
             waitForText("LFM · model answer")
             screenshot("real-chat")
+        }
+        step("Compose_cancel_then_send_next_real_model_turn") {
+            sendFromUi("Write a long story about a journey.")
+            waitForText("Thinking locally")
+            clickText("Cancel")
+            waitForText("Cancelled", 30000)
+            sendFromUi("Reply with only the word LOCAL.")
+            waitForText("Finished", 180000)
+            screenshot("cancel-recovery")
             closeActivity()
         }
     }
@@ -260,16 +276,34 @@ class LocalValidationRunner : Instrumentation() {
     private fun waitForText(text: String, timeout: Long = 30000) =
         waitNode(timeout) { it.text?.toString()?.contains(text) == true }
     private fun clickText(text: String) {
-        var node: AccessibilityNodeInfo? = waitNode { it.text?.toString() == text }
-        while (node != null && !node.isClickable) node = node.parent
-        check(node?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true) { "Cannot click $text" }
+        val end = SystemClock.elapsedRealtime() + 30000
+        while (SystemClock.elapsedRealtime() < end) {
+            var node = find(uiAutomation.rootInActiveWindow) { it.text?.toString() == text }
+            while (node != null && !node.isClickable) node = node.parent
+            if (node?.isEnabled == true && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return
+            SystemClock.sleep(100)
+        }
+        error("Timed out waiting for enabled clickable $text")
     }
     private fun sendFromUi(text: String) {
         val field = waitNode { it.isEditable && it.isEnabled }
         check(field.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, Bundle().apply {
             putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
         }))
+        // ACTION_SET_TEXT is acknowledged before Compose necessarily recomposes.
+        waitNode { it.isEditable && it.text?.toString() == text }
         clickText("Send")
+    }
+    private fun dumpUi() {
+        fun snapshot(node: AccessibilityNodeInfo?, depth: Int): JSONObject {
+            if (node == null || depth > 20) return JSONObject()
+            val children = JSONArray()
+            for (i in 0 until node.childCount) children.put(snapshot(node.getChild(i), depth + 1))
+            return JSONObject().put("text", node.text?.toString()).put("class", node.className?.toString())
+                .put("enabled", node.isEnabled).put("clickable", node.isClickable)
+                .put("editable", node.isEditable).put("children", children)
+        }
+        File(output, "$phase-ui.json").writeText(snapshot(uiAutomation.rootInActiveWindow, 0).toString(2))
     }
     private fun screenshot(name: String) {
         val bitmap = uiAutomation.takeScreenshot() ?: error("Screenshot unavailable")
