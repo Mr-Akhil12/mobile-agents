@@ -106,11 +106,11 @@ private fun ChatScreen(vm: ChatViewModel) {
         } else elapsed = 0
     }
     val context = LocalContext.current
-    var voiceImport by remember { mutableStateOf<VoicePart?>(null) }
+    var voiceImport by rememberSaveable { mutableStateOf<VoicePart?>(null) }
     LaunchedEffect(state.transcriptId) { if (state.transcript.isNotEmpty()) input = state.transcript }
     val microphonePermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) vm.startVoice() else vm.microphoneDenied() }
-    val voicePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) voiceImport?.let { vm.importVoice(it, uri) }; voiceImport = null }
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(vm::importModel) }
+    val voicePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> showModels = true; if (uri != null) voiceImport?.let { vm.importVoice(it, uri) }; voiceImport = null }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> showModels = true; uri?.let(vm::importModel) }
     val scroll = rememberLazyListState()
     val items = remember(messages) { chatItems(messages) }
     LaunchedEffect(items.size, state.streaming, conversation) {
@@ -160,7 +160,7 @@ private fun ChatScreen(vm: ChatViewModel) {
                             Icon(painterResource(R.drawable.ic_agent_foreground), contentDescription = null, tint = Color.Unspecified, modifier = Modifier.size(72.dp))
                             Text("How can I help?", style = MaterialTheme.typography.headlineSmall)
                             Text("Your conversations stay on this phone.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 12.dp))
-                            Text("Import your text model from Models, then ask a question.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                            Text(if (state.loaded) "Text model loaded · ready for your message." else if (state.textAvailable) "Text model available · load it from Models." else "Import your text model from Models, then ask a question.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                             TextButton(onClick = { input = "What time is it on my phone?" }) { Text("What time is it on my phone?") }
                         }
                     }
@@ -231,30 +231,41 @@ private fun ChatScreen(vm: ChatViewModel) {
     if (showControls) AgentControls(vm, onDismiss = { showControls = false })
     if (showMemory) MemoryDialog(vm, onDismiss = { showMemory = false })
     if (showModels) AlertDialog(onDismissRequest = { showModels = false }, title = { Text("On-device models") }, text = {
-        Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("LFM3-1.7B · Q5_K_M\n1,258,663,200 bytes (1.26 GB)\nReserve at least 1.5 GB app storage in addition to the downloaded file.")
-            Text("Use the official file. Import copies it into private storage and verifies its pinned SHA-256. No model is bundled with the APK.")
-            Text("Liquid AI LFM Open License v1.0 applies, including its commercial revenue threshold. Review the license before use.")
-            TextButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(ModelStore.SOURCE))) }) { Text("Official model download") }
-            TextButton(onClick = { showLicense = true }) { Text("Model license (offline)") }
-            TextButton(enabled = !state.busy, onClick = { showModels = false; vm.removeModel() }) { Text("Unload and delete model") }
-            HorizontalDivider()
-            Text("Omni offline voice · model + paired projector", style = MaterialTheme.typography.titleSmall)
-            Text(if (vm.voiceModels.ready) "Both voice files verified. Tap the microphone, stop when finished, then review the transcript before Send." else "Import both files (1,099,630,080 + 540,892,768 bytes). Existing matching Termux downloads are supported. Voice uses one model at a time to limit RAM.")
-            VoicePart.entries.forEach { part ->
-                TextButton(enabled = !state.busy, onClick = { showModels = false; voiceImport = part; voicePicker.launch(arrayOf("*/*")) }) { Text("Import " + if (part == VoicePart.MODEL) "Omni model" else "Omni projector") }
-                TextButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(part.source))) }) { Text("Official " + if (part == VoicePart.MODEL) "Omni download" else "projector download") }
+        Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (state.importTarget != null) TextButton(onClick = vm::cancel) { Text("Cancel import") }
+            Text("Loaded now", style = MaterialTheme.typography.titleSmall)
+            Text(if (state.loaded) "LFM3-1.7B · text and tools" else if (state.voiceBusy) "Omni voice · preparing, listening or transcribing" else "No model loaded")
+            Text("Available on this phone", style = MaterialTheme.typography.titleSmall)
+            Text("Imported files stay in private app storage. Available means imported and verified; loaded means active in memory. Text and Omni swap automatically.", style = MaterialTheme.typography.bodySmall)
+            ModelFileCard("Text · LFM3-1.7B", ModelStore.FILENAME, ModelStore.SIZE, state.textAvailable,
+                "text", state, { picker.launch(arrayOf("*/*")) }, "Import text model") {
+                if (state.textAvailable) {
+                    TextButton(enabled = !state.busy && !state.loaded, onClick = vm::load) { Text("Load text model") }
+                    TextButton(enabled = !state.busy, onClick = vm::removeModel) { Text("Unload and delete model") }
+                }
+                TextButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(ModelStore.SOURCE))) }) { Text("Official model download") }
             }
-            Text("Spoken replies use an installed offline Android TTS voice, not cloud speech. Microphone capture stops when the app leaves the foreground.")
+            Text("Omni offline voice · two required files", style = MaterialTheme.typography.titleSmall)
+            Text(if (state.omniAvailable && state.projectorAvailable) "Both voice files verified. Tap the microphone, stop when finished, then review the transcript before Send." else "Voice unavailable until both files below are imported. Select each file using its own Import button.")
+            VoicePart.entries.forEach { part ->
+                val isModel = part == VoicePart.MODEL
+                ModelFileCard(if (isModel) "Omni model" else "Omni audio projector", part.filename, part.bytes,
+                    if (isModel) state.omniAvailable else state.projectorAvailable, part.name, state,
+                    { voiceImport = part; voicePicker.launch(arrayOf("*/*")) }, if (isModel) "Import Omni model" else "Import Omni projector") {
+                    TextButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(part.source))) }) { Text(if (isModel) "Official Omni download" else "Official projector download") }
+                }
+            }
+            Text("Import copies the selected file and checks its pinned SHA-256. Existing matching Termux files work; no model is bundled. Failed imports preserve existing imported files.", style = MaterialTheme.typography.bodySmall)
+            Text("Spoken replies require an installed offline Android TTS voice. Microphone capture stops when the app leaves the foreground.", style = MaterialTheme.typography.bodySmall)
             TextButton(onClick = {
                 try { context.startActivity(Intent("com.android.settings.TTS_SETTINGS")) }
                 catch (e: android.content.ActivityNotFoundException) { voiceSettingsError = "Open Android Settings and select an installed offline text-to-speech voice." }
             }) { Text("Android voice settings") }
             if (voiceSettingsError.isNotEmpty()) Text(voiceSettingsError)
+            Text("Liquid AI LFM Open License v1.0 applies, including its commercial revenue threshold.", style = MaterialTheme.typography.bodySmall)
+            TextButton(onClick = { showLicense = true }) { Text("Model license (offline)") }
         }
-    }, confirmButton = { TextButton(enabled = !state.busy, onClick = { showModels = false; picker.launch(arrayOf("*/*")) }) { Text("Import GGUF") } }, dismissButton = {
-        TextButton(onClick = { showModels = false }) { Text("Close") }
-    })
+    }, confirmButton = { TextButton(onClick = { showModels = false }) { Text("Done") } })
     if (showLicense) {
         val license = remember { context.assets.open("licenses/LFM-Open-License-1.0.txt").bufferedReader().use { it.readText() } }
         AlertDialog(onDismissRequest = { showLicense = false }, title = { Text("LFM Open License v1.0") },
@@ -264,6 +275,26 @@ private fun ChatScreen(vm: ChatViewModel) {
     if (confirmClear) AlertDialog(onDismissRequest = { confirmClear = false }, title = { Text("Delete local chat history?") }, text = { Text("This deletes messages and tool evidence from the current chat. Saved memory is managed separately in Memory.") },
         confirmButton = { TextButton(onClick = { confirmClear = false; vm.clear() }) { Text("Delete history") } },
         dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Keep") } })
+}
+
+@Composable
+private fun ModelFileCard(title: String, filename: String, bytes: Long, available: Boolean,
+    target: String, state: ChatState, onImport: () -> Unit, importLabel: String, actions: @Composable ColumnScope.() -> Unit) {
+    Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
+        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(title, style = MaterialTheme.typography.titleSmall)
+            Text(filename, style = MaterialTheme.typography.bodySmall)
+            Text("$bytes bytes", style = MaterialTheme.typography.bodySmall)
+            Text(if (available) "Available · verified import" else "Not imported")
+            if (state.importTarget == target) {
+                LinearProgressIndicator(progress = { state.importProgress / 100f }, modifier = Modifier.fillMaxWidth())
+                Text("Importing and checking SHA-256 · ${state.importProgress}%", style = MaterialTheme.typography.bodySmall)
+            }
+            state.importErrors[target]?.let { error -> SelectionContainer { Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) } }
+            TextButton(enabled = !state.busy, onClick = onImport) { Text(if (available) "Replace · $importLabel" else importLabel) }
+            actions()
+        }
+    }
 }
 
 @Composable

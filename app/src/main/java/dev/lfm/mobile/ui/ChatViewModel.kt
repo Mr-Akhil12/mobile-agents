@@ -30,7 +30,9 @@ data class ChatState(val busy: Boolean = false, val loaded: Boolean = false,
     val startedAtMs: Long = 0, val elapsedMs: Long = 0, val metrics: InferenceMetrics? = null,
     val supportsThinking: Boolean = false, val working: Boolean = false,
     val recording: Boolean = false, val voiceBusy: Boolean = false, val speaking: Boolean = false,
-    val transcript: String = "", val transcriptId: Long = 0)
+    val transcript: String = "", val transcriptId: Long = 0,
+    val textAvailable: Boolean = false, val omniAvailable: Boolean = false, val projectorAvailable: Boolean = false,
+    val importTarget: String? = null, val importProgress: Int = 0, val importErrors: Map<String, String> = emptyMap())
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
@@ -63,6 +65,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private var job: Job? = null
     init {
         viewModelScope.launch { dao.createConversation(Conversation(DEFAULT_CONVERSATION, "Earlier conversation")) }
+        refreshModels()
         if (models.model.isFile) load()
     }
     fun updateSettings(value: GenerationSettings) {
@@ -110,20 +113,25 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             finally { mutable.update { it.copy(busy = false) } }
         }
     }
+    private fun refreshModels() { mutable.update { it.copy(
+        textAvailable = models.model.isFile && models.model.length() == ModelStore.SIZE,
+        omniAvailable = voiceModels.available(VoicePart.MODEL), projectorAvailable = voiceModels.available(VoicePart.PROJECTOR)) } }
+    private fun importProgress(target: String, bytes: Long, total: Long) { mutable.update { it.copy(importTarget = target, importProgress = (bytes * 100 / total).toInt()) } }
     fun importModel(uri: Uri) {
         if (state.value.busy) return
         job = viewModelScope.launch {
-            mutable.update { it.copy(busy = true, loaded = false, status = "Importing and verifying model") }
+            mutable.update { it.copy(busy = true, importTarget = "text", importProgress = 0, importErrors = it.importErrors - "text", status = "Importing text model · see Models") }
             try {
+                models.importModel(uri) { bytes -> importProgress("text", bytes, ModelStore.SIZE) }
+                mutable.update { it.copy(loaded = false) }
                 InferenceRepository.unload()
-                models.importModel(uri) { bytes -> status("Importing: ${bytes * 100 / ModelStore.SIZE}% · checking SHA-256") }
                 status("SHA-256 verified. Loading native model")
                 InferenceRepository.load(models.model.path)
                 val thinking = InferenceRepository.supportsThinking()
                 mutable.update { it.copy(loaded = true, supportsThinking = thinking, status = "Ready · verified local model") }
             } catch (e: CancellationException) { status("Import cancelled"); throw e }
-            catch (e: Exception) { status(e.message ?: "Import failed") }
-            finally { mutable.update { it.copy(busy = false) } }
+            catch (e: Exception) { mutable.update { it.copy(importErrors = it.importErrors + ("text" to (e.message ?: "Import failed")), status = "Text import failed · see Models") } }
+            finally { refreshModels(); mutable.update { it.copy(busy = false, importTarget = null) } }
         }
     }
     fun send(text: String) {
@@ -164,14 +172,14 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun importVoice(part: VoicePart, uri: Uri) {
         if (state.value.busy) return
         job = viewModelScope.launch {
-            mutable.update { it.copy(busy = true, status = "Verifying ${part.filename}") }
+            mutable.update { it.copy(busy = true, importTarget = part.name, importProgress = 0, importErrors = it.importErrors - part.name, status = "Importing voice file · see Models") }
             try {
                 InferenceRepository.unloadVoice()
-                voiceModels.import(part, uri) { bytes -> status("Importing voice: ${bytes * 100 / part.bytes}% · checking SHA-256") }
+                voiceModels.import(part, uri) { bytes -> importProgress(part.name, bytes, part.bytes) }
                 status(if (voiceModels.ready) "Omni pair verified · ready for voice" else "Voice file verified; import the other paired file")
             } catch (e: CancellationException) { status("Voice import cancelled"); throw e }
-            catch (e: Exception) { status(e.message ?: "Voice import failed") }
-            finally { mutable.update { it.copy(busy = false) } }
+            catch (e: Exception) { mutable.update { it.copy(importErrors = it.importErrors + (part.name to (e.message ?: "Import failed")), status = "Voice import failed · see Models") } }
+            finally { refreshModels(); mutable.update { it.copy(busy = false, importTarget = null) } }
         }
     }
     fun startVoice() {
@@ -219,7 +227,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             mutable.update { it.copy(busy = true, loaded = false) }
             try { InferenceRepository.unload(); check(!models.model.exists() || models.model.delete()); status("Model removed") }
             catch (e: Exception) { status(e.message ?: "Cannot remove model") }
-            finally { mutable.update { it.copy(busy = false) } }
+            finally { refreshModels(); mutable.update { it.copy(busy = false) } }
         }
     }
     override fun onCleared() { disposed = true; updates.cancel(); microphone.stop(); speakerInstance?.close(); InferenceRepository.cancel(); super.onCleared() }
