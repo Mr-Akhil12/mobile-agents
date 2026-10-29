@@ -11,9 +11,13 @@
 .env*
 local.properties
 .gradle/
+.ccache/
 .kotlin/
 .idea/
 **/build/
 **/.cxx/
 captures/
+__pycache__/
+*.pyc
+validation-evidence/
 !gradle/wrapper/gradle-wrapper.jar

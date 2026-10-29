@@ -4,6 +4,8 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
 }
+val lfmAbi = providers.gradleProperty("lfmAbi").getOrElse("arm64-v8a")
+require(lfmAbi in setOf("arm64-v8a", "x86_64")) { "Unsupported lfmAbi" }
 android {
     namespace = "dev.lfm.mobile"
     compileSdk = 35
@@ -13,9 +15,10 @@ android {
         applicationId = "dev.lfm.mobile"
         minSdk = 28
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0-dev"
-        ndk { abiFilters += "arm64-v8a" }
+        versionCode = 2
+        versionName = "0.1.1-dev"
+        ndk { abiFilters += lfmAbi }
+        testInstrumentationRunner = "dev.lfm.mobile.validation.LocalValidationRunner"
     }
     buildFeatures { compose = true }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }

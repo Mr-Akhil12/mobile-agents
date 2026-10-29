@@ -1,0 +1,30 @@
+# Durable continuation checkpoint — 29 October 2026
+
+Read this and MASTER_PLAN.md in full before editing. Deadline: **Friday 30 October 2026, 16:00 SAST**. Text first. **Initial Xiaomi smoke is user-reported successful; detailed acceptance remains pending; Omni voice remains held until text/device gate review.** No merge, verified release tag, paid services, model weights or private logs are authorized.
+
+## Verified candidate and actual CI
+
+- Personal GitHub connection: Mr-Akhil12. PR #1 remains open on feature/native-text-milestone at 66c8fc2eaae11ff6e623102d04cfeb258515e1fe; its original run 40774787452 passed build, seven policy tests and lint.
+- PR #2 is stacked on PR #1, branch feature/emulator-validation. Tested implementation head: **2efa7cf63dedc73f98391c83b16089581b462620**, tree **ca0438578600efab6c04ed08339928d95bc414c8**. Later documentation commits do not change the delivered APK.
+- [Emulator run 40785098598](https://github.com/Mr-Akhil12/mobile-agents/actions/runs/40785098598): SUCCESS, **18/18 checks** (15 core + 3 restart), real pinned GGUF and JNI, artifact **12858589228**. Downloaded JSON reports and screenshots inspected. Emulator checks out the feature head directly.
+- [ARM64 run 40785098594](https://github.com/Mr-Akhil12/mobile-agents/actions/runs/40785098594): SUCCESS, build/lint and **11 policy tests**, zero failures/errors/skips. Actual PR-merge checkout **daf3957c67cf5c5038f4e083e5358af4009074c9**, same tree ca0438578600efab6c04ed08339928d95bc414c8. APK artifact **12859576627**, reports **12859950499**.
+- Delivered **LFM_TEXT_FIRST_XIAOMI.apk**, **34,178,221 bytes**, SHA-256 **ef2481e2bdfd34d608adf33d6e9fd178849348487a8aa0032c33cb8e7a32feb1**. APK signature v2 and 16 KB ZIP alignment verified in CI. ARM64-only, API 28 minimum / 35 target; no Internet or microphone permission. Debug certificate SHA-256 **6c1622a452322a902d36abf8bdc96a7f5b14c4ffe050a88038a44e86cd1a6394**. Separate clean CI builds can use different debug keys.
+
+## Coverage and fixes
+
+The generic Android API 35 x86_64 suite passed actual SAF Documents UI import/checksum, corrupt/cancelled import recovery, real filesystem low-space rejection/recovery, JNI load and streamed inference, Android clock/battery and strict tool policy, model → time tool → grounded final answer, contextual turns, native cancellation/recovery, Compose Send/Cancel/reuse, landscape/portrait Activity recreation with subsequent inference, force-stop/history/model reload, post-restart greeting and Clear chat (DB and UI).
+
+Earlier failures were real and are preserved in run history: first SDK setup used retired tools; a UI driver clicked before Compose became ready; run 40780321065 then exposed post-restart planning/protocol output correctly withheld by the app. The product fix permits one bounded final-answer repair without storing/replaying rejected reasoning, retains the three-tool budget and errors on invalid repair. Streaming withholds known partial planning prefixes. Strict empty arguments reject trailing data/comments. The driver requires new persisted assistant output, checks errors promptly and validates a complete named report.
+
+Compiler caching is opt-in and bounded to 1 GB. Latest cached x86_64 build took 49 seconds versus 6m24s cold, with 133 compiler cache hits observed; these are CI build observations, not phone performance. No model weights or signing keys are cached/uploaded.
+
+## Next authorized work and gate
+
+1. User reports the first APK worked perfectly on Xiaomi 15T, importing the model already downloaded through Termux. Exact installed hash and individual offline/tool/lifecycle acceptance observations are not yet supplied. See device-validation-results.md; do not mark the full checklist passed. User requested Local Agents branding, bot icon and black/grey/white theme. Current patch changes presentation/version only; new CI must be inspected before delivering a new binary. Package dev.lfm.mobile and model pins/storage are preserved; ephemeral CI debug certificates can still prevent an in-place update.
+2. Review actual returned Xiaomi results, fix text P0s and rerun affected tests. Generic emulator evidence cannot establish Xiaomi ARM64/HyperOS, low-memory/background behavior, thermals, battery or phone latency.
+3. Keep Omni voice integration held until text/device gate review. No microphone/audio loop is implemented or validated. Do not waive physical acceptance or call this a verified release.
+4. Before editing, inspect current branch, PRs and active CI. Do not duplicate runs or concurrent edits. Preserve source, llama.cpp pin, licenses and user work; use expected-head updates without force push.
+
+## Autonomy and limits
+
+User removed the 5% safety-stop requirement. Continue useful authorized work within actual account limits; no live usage/reset telemetry is exposed. Never invent percentages or reset status, buy credits, or bypass limits. The scheduled **29 October 03:55 SAST** continuation is a conservative retry, not evidence of quota reset. Checkpoint actual outcomes frequently. Stop for actual limits, necessary external blockers, completion or new instructions.

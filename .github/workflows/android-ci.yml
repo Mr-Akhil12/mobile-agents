@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: android-${{ github.ref }}
+  group: android-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 jobs:
   apk:
@@ -35,8 +35,12 @@ jobs:
         run: ./gradlew --no-daemon :app:assembleDebug :app:testDebugUnitTest :app:lintDebug --console=plain
       - name: APK evidence
         run: |
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs app/build/outputs/apk/debug/app-debug.apk > app/build/outputs/apk/debug/SIGNATURE.txt
+          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 -v 4 app/build/outputs/apk/debug/app-debug.apk > app/build/outputs/apk/debug/ALIGNMENT.txt
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging app/build/outputs/apk/debug/app-debug.apk > app/build/outputs/apk/debug/BADGING.txt
           sha256sum app/build/outputs/apk/debug/app-debug.apk > app/build/outputs/apk/debug/SHA256SUMS
           git rev-parse HEAD > app/build/outputs/apk/debug/SOURCE_COMMIT
+          git rev-parse HEAD^{tree} > app/build/outputs/apk/debug/SOURCE_TREE
       - name: Upload installable test APK
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

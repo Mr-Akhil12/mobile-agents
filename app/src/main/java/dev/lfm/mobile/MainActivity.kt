@@ -7,7 +7,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
@@ -16,6 +15,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -23,13 +25,14 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.lfm.mobile.inference.ModelStore
 import dev.lfm.mobile.ui.ChatViewModel
+import dev.lfm.mobile.ui.LocalAgentsTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val vm = ViewModelProvider(this)[ChatViewModel::class.java]
         setContent {
-            MaterialTheme(colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()) {
+            LocalAgentsTheme {
                 ChatScreen(vm)
             }
         }
@@ -51,8 +54,9 @@ private fun ChatScreen(vm: ChatViewModel) {
     }
     Scaffold { padding ->
         Column(Modifier.fillMaxSize().padding(padding).imePadding().padding(horizontal = 16.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("LFM", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(vertical = 12.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Icon(painterResource(R.drawable.ic_agent_foreground), contentDescription = null, modifier = Modifier.padding(end = 8.dp).size(32.dp))
+                Text(stringResource(R.string.app_name), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(vertical = 16.dp))
                 TextButton(onClick = { showModels = true }) { Text("Models") }
                 TextButton(onClick = { confirmClear = true }, enabled = !state.busy) { Text("Clear chat") }
             }
@@ -70,7 +74,7 @@ private fun ChatScreen(vm: ChatViewModel) {
                         else -> MaterialTheme.colorScheme.surfaceContainer
                     })) {
                         Column(Modifier.fillMaxWidth().padding(14.dp)) {
-                            Text(when (message.role) { "user" -> "You"; "assistant" -> "LFM · model answer"; "tool" -> "Tool evidence · Android"; "error" -> "Error"; else -> "Tool request" }, style = MaterialTheme.typography.labelMedium)
+                            Text(when (message.role) { "user" -> "You"; "assistant" -> "Local Agents · model answer"; "tool" -> "Tool evidence · Android"; "error" -> "Error"; else -> "Tool request" }, style = MaterialTheme.typography.labelMedium)
                             Text(message.content)
                         }
                     }
@@ -78,7 +82,7 @@ private fun ChatScreen(vm: ChatViewModel) {
                 item { if (state.streaming.isNotEmpty()) Text(state.streaming, modifier = Modifier.padding(14.dp)) }
             }
             OutlinedTextField(value = input, onValueChange = { if (it.length <= 8000) input = it }, modifier = Modifier.fillMaxWidth(), enabled = !state.busy,
-                label = { Text("Message LFM") }, maxLines = 5)
+                label = { Text("Message Local Agents") }, maxLines = 5)
             Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.End) {
                 if (state.busy) OutlinedButton(onClick = vm::cancel) { Text("Cancel") }
                 else Button(onClick = { vm.send(input); input = "" }, enabled = state.loaded && input.isNotBlank()) { Text("Send") }
