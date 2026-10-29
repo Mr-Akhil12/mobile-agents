@@ -344,6 +344,7 @@ class LocalValidationRunner : Instrumentation() {
             check(roots.performAction(AccessibilityNodeInfo.ACTION_CLICK))
             clickText("Downloads")
             clickText("LFM3-1.7B-Q5_K_M.gguf")
+            waitForText("On-device models")
             scrollToVisibleText("Loaded now", forward = false)
             waitForText("LFM3-1.7B · text and tools", 180000)
             scrollToVisibleText("Available · verified import", forward = true)
