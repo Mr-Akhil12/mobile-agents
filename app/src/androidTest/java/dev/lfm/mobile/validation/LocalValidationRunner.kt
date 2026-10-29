@@ -506,7 +506,7 @@ class LocalValidationRunner : Instrumentation() {
                 val fresh = db.messages().all().filter { it.id > before }
                 fresh.firstOrNull { it.role == "error" }?.let { error("App rejected turn: ${it.content}") }
                 fresh.lastOrNull { it.role == "assistant" }?.let {
-                    waitForText("Finished")
+                    waitNode { it.isEditable && it.isEnabled && it.isVisibleToUser }
                     return it
                 }
                 SystemClock.sleep(200)
