@@ -15,8 +15,15 @@ import android.view.accessibility.AccessibilityNodeInfo
 import androidx.room.Room
 import dev.lfm.mobile.MainActivity
 import dev.lfm.mobile.agent.AgentCoordinator
+import dev.lfm.mobile.agent.AnswerPolicy
 import dev.lfm.mobile.data.ChatDatabase
 import dev.lfm.mobile.data.ChatMessage
+import dev.lfm.mobile.data.MemoryFact
+import dev.lfm.mobile.data.Conversation
+import dev.lfm.mobile.data.DEFAULT_CONVERSATION
+import dev.lfm.mobile.inference.GenerationSettings
+import dev.lfm.mobile.inference.InferenceMetrics
+import android.database.sqlite.SQLiteDatabase
 import dev.lfm.mobile.inference.InferenceRepository
 import dev.lfm.mobile.inference.ModelStore
 import dev.lfm.mobile.tools.ToolRegistry
@@ -99,10 +106,36 @@ class LocalValidationRunner : Instrumentation() {
         check(fixture.length() == ModelStore.SIZE) { "Missing full pinned GGUF fixture" }
         step("native_UI_launch_without_model") {
             launch()
-            waitForText("Local-first · Text prototype")
+            waitForText("Private · On-device")
+            waitForText("Local Agents")
             waitForText("Import the official text GGUF to begin")
             screenshot("onboarding")
             closeActivity()
+        }
+        step("SQLite_v1_migration_preserves_history_and_memory_CRUD") {
+            val name = "migration-proof.db"
+            targetContext.deleteDatabase(name)
+            val path = targetContext.getDatabasePath(name).apply { parentFile!!.mkdirs() }
+            SQLiteDatabase.openOrCreateDatabase(path, null).use { old ->
+                old.execSQL("CREATE TABLE messages (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, turnId TEXT NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL, observedAt INTEGER NOT NULL, contextJson TEXT)")
+                old.execSQL("INSERT INTO messages (turnId, role, content, observedAt, contextJson) VALUES ('legacy', 'user', 'keep this history', 123, '{\"role\":\"user\",\"content\":\"keep this history\"}')")
+                old.version = 1
+            }
+            var migrated = Room.databaseBuilder(targetContext, ChatDatabase::class.java, name).addMigrations(ChatDatabase.MIGRATION_1_2).build()
+            try {
+                val legacy = migrated.messages().all().single()
+                check(legacy.content == "keep this history" && legacy.conversationId == DEFAULT_CONVERSATION && legacy.contextJson != null)
+                migrated.messages().saveMemory(MemoryFact(content = "initial note"))
+                val note = migrated.messages().allMemories().single()
+                migrated.messages().editMemory(note.id, "edited note")
+            } finally { migrated.close() }
+            migrated = Room.databaseBuilder(targetContext, ChatDatabase::class.java, name).addMigrations(ChatDatabase.MIGRATION_1_2).build()
+            try {
+                val note = migrated.messages().allMemories().single()
+                check(note.content == "edited note")
+                migrated.messages().deleteMemory(note.id)
+                check(migrated.messages().allMemories().isEmpty() && migrated.messages().all().size == 1)
+            } finally { migrated.close(); targetContext.deleteDatabase(name) }
         }
         step("corrupt_import_rejected_without_partial_model") {
             val bad = File(targetContext.cacheDir, "bad.gguf").apply { writeText("not a GGUF") }
@@ -191,6 +224,26 @@ class LocalValidationRunner : Instrumentation() {
             check(!tools.execute("get_local_time", "{} trailing", "trailing").getBoolean("success"))
             evidence.put("AndroidClock", clock).put("emulatedBattery", battery)
         }
+        step("configured_JNI_generation_reports_real_metrics_and_rejects_invalid_settings") {
+            val prompt = """[{"role":"user","content":"Reply with only the word LOCAL."}]"""
+            val result = JSONObject(InferenceRepository.generateConfigured(prompt, "[]", GenerationSettings(temperature = 0.2f, topK = 20, repeatPenalty = 1.05f)) {})
+            check(result.optString("content").contains("LOCAL"))
+            val measured = InferenceMetrics().add(result.getJSONObject("local_metrics"))
+            check(measured.promptTokens > 0 && measured.generatedTokens > 0 && measured.promptMs > 0 && measured.generationMs > 0)
+            check(measured.ingestionSpeed!!.isFinite() && measured.generationSpeed!!.isFinite())
+            var rejected = false
+            try { InferenceRepository.generateConfigured(prompt, "[]", GenerationSettings(temperature = 3f)) {} }
+            catch (e: IllegalStateException) { rejected = e.message.orEmpty().contains("settings out of supported range") }
+            check(rejected)
+            val thinkingSupported = InferenceRepository.supportsThinking()
+            if (thinkingSupported) {
+                val thought = JSONObject(InferenceRepository.generateConfigured(prompt, "[]", GenerationSettings(thinking = true, maxTokens = 1024)) {})
+                check(thought.optString("content").contains("LOCAL"))
+                AnswerPolicy.validate(thought.getString("content"))
+                evidence.put("thinkingEnabledMetrics", thought.getJSONObject("local_metrics"))
+            }
+            evidence.put("nativeMetrics", JSONObject(measured.toJson())).put("supportsThinking", thinkingSupported)
+        }
         val db = Room.databaseBuilder(targetContext, ChatDatabase::class.java, "validation-chat.db").build()
         try {
             val agent = AgentCoordinator(db.messages(), ToolRegistry(targetContext))
@@ -211,6 +264,21 @@ class LocalValidationRunner : Instrumentation() {
                 agent.answer("Remember the test word mango. Reply briefly.", {}, {})
                 agent.answer("What test word did I just give you?", {}, {})
                 check(db.messages().all().last().content.contains("mango", ignoreCase = true))
+            }
+            step("SQLite_conversation_isolation_and_saved_memory_ground_real_reply") {
+                val dao = db.messages()
+                dao.createConversation(Conversation("private-a", "Private chat A"))
+                dao.createConversation(Conversation("memory-b", "Memory chat B"))
+                dao.insert(ChatMessage(turnId = "private", role = "user", content = "Private word saffron", conversationId = "private-a"))
+                dao.saveMemory(MemoryFact(content = "My saved test word is cedar."))
+                agent.answer("What is my saved test word? Answer one word.", {}, {}, conversationId = "memory-b", memory = dao.allMemories().map { it.content })
+                val rows = dao.inConversation("memory-b")
+                check(rows.last().role == "assistant" && rows.last().content.contains("cedar", ignoreCase = true))
+                check(rows.none { it.content.contains("saffron", ignoreCase = true) })
+                check(InferenceMetrics.fromJson(checkNotNull(rows.last().metricsJson)).calls > 0)
+                dao.clearConversation("memory-b")
+                check(dao.inConversation("memory-b").isEmpty() && dao.inConversation("private-a").size == 1 && dao.allMemories().size == 1)
+                evidence.put("savedMemoryReply", rows.last().content)
             }
         } finally { db.close() }
         step("native_cancellation_then_successful_generation") {
@@ -256,11 +324,54 @@ class LocalValidationRunner : Instrumentation() {
         }
         step("Compose_cancel_then_send_next_real_model_turn") {
             sendFromUi("Write a long story about a journey.")
-            waitForText("Thinking locally")
+            waitForText("Working for ")
             clickText("Cancel")
             waitForText("Cancelled", 30000)
             check(completedUiTurn("Reply with only the word LOCAL.").content.contains("LOCAL"))
             screenshot("cancel-recovery")
+        }
+        step("Compose_controls_memory_and_collapsible_real_tool_evidence") {
+            clickText("Controls")
+            waitForText("Generation controls")
+            waitForText("Temperature")
+            screenshot("generation-controls")
+            clickText("Reset defaults")
+            clickText("Done")
+            clickText("Memory")
+            waitForText("Saved memory")
+            val field = waitNode { it.isEditable && it.isEnabled }
+            check(field.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "UI memory proof") }))
+            waitNode { it.isEditable && it.text?.toString() == "UI memory proof" }
+            clickText("Save memory")
+            waitForText("UI memory proof")
+            screenshot("saved-memory")
+            clickText("Delete")
+            clickText("Done")
+            val answer = completedUiTurn("What time is it on my phone? Use get_local_time and include the exact ISO datetime from the tool result.")
+            check(answer.metricsJson != null)
+            val proofDb = Room.databaseBuilder(targetContext, ChatDatabase::class.java, "lfm-chats.db").build()
+            try {
+                val proof = proofDb.messages().all().firstOrNull { it.turnId == answer.turnId && it.role == "tool" && it.content.startsWith("get_local_time\n") }
+                    ?: error("UI time turn produced no actual get_local_time evidence")
+                val observed = JSONObject(proof.content.substringAfter('\n'))
+                check(observed.getBoolean("success"))
+                evidence.put("UITimeToolEvidence", observed).put("UITimeFollowup", answer.content)
+                    .put("UIMetrics", JSONObject(answer.metricsJson))
+            } finally { proofDb.close() }
+            waitForText("Worked for ")
+            var visible = false
+            for (attempt in 0 until 10) {
+                if (find(uiRoot()) { it.text?.toString() == "Show evidence ▾" && it.isVisibleToUser } != null) { visible = true; break }
+                val list = find(uiRoot()) { it.isScrollable }
+                list?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)
+                SystemClock.sleep(300)
+            }
+            check(visible) { "Tool evidence dropdown not reachable" }
+            clickText("Show evidence ▾")
+            waitForText("success")
+            screenshot("expanded-tool-evidence")
+            clickText("Hide evidence ▴")
+            screenshot("collapsed-tool-evidence")
         }
         step("Compose_rotation_preserves_history_and_native_session") {
             rotate(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE)
@@ -322,6 +433,13 @@ class LocalValidationRunner : Instrumentation() {
             waitForIdleSync()
         } finally { removeMonitor(monitor) }
     }
+    private fun uiRoot(): AccessibilityNodeInfo? {
+        // Compose can leave cached virtual nodes from the prior window/scroll state.
+        // This runner targets API 35; keep an API guard for older debug devices.
+        if (android.os.Build.VERSION.SDK_INT >= 34) uiAutomation.clearCache()
+        val root = uiAutomation.rootInActiveWindow ?: return null
+        return root.takeIf { it.refresh() }
+    }
     private fun find(node: AccessibilityNodeInfo?, predicate: (AccessibilityNodeInfo) -> Boolean): AccessibilityNodeInfo? {
         if (node == null) return null
         if (predicate(node)) return node
@@ -331,7 +449,7 @@ class LocalValidationRunner : Instrumentation() {
     private fun waitNode(timeout: Long = 30000, predicate: (AccessibilityNodeInfo) -> Boolean): AccessibilityNodeInfo {
         val end = SystemClock.elapsedRealtime() + timeout
         while (SystemClock.elapsedRealtime() < end) {
-            find(uiAutomation.rootInActiveWindow, predicate)?.let { return it }
+            find(uiRoot(), predicate)?.let { return it }
             SystemClock.sleep(200)
         }
         error("Timed out waiting for UI node; $phase")
@@ -341,7 +459,7 @@ class LocalValidationRunner : Instrumentation() {
     private fun clickText(text: String) {
         val end = SystemClock.elapsedRealtime() + 30000
         while (SystemClock.elapsedRealtime() < end) {
-            var node = find(uiAutomation.rootInActiveWindow) { it.text?.toString() == text }
+            var node = find(uiRoot()) { it.text?.toString() == text }
             while (node != null && !node.isClickable) node = node.parent
             if (node?.isEnabled == true && node.isVisibleToUser && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return
             SystemClock.sleep(100)
@@ -349,7 +467,8 @@ class LocalValidationRunner : Instrumentation() {
         error("Timed out waiting for enabled clickable $text")
     }
     private fun sendFromUi(text: String) {
-        val field = waitNode { it.isEditable && it.isEnabled }
+        val field = waitNode { node -> node.isEditable && node.isEnabled && node.isVisibleToUser &&
+            find(node) { it.text?.toString() == "Message Local Agents" } != null }
         check(field.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, Bundle().apply {
             putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
         }))
@@ -385,7 +504,7 @@ class LocalValidationRunner : Instrumentation() {
                 .put("enabled", node.isEnabled).put("clickable", node.isClickable)
                 .put("editable", node.isEditable).put("children", children)
         }
-        File(output, "$phase-ui.json").writeText(snapshot(uiAutomation.rootInActiveWindow, 0).toString(2))
+        File(output, "$phase-ui.json").writeText(snapshot(uiRoot(), 0).toString(2))
     }
     private fun screenshot(name: String) {
         val bitmap = uiAutomation.takeScreenshot() ?: error("Screenshot unavailable")

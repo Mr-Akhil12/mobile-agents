@@ -9,15 +9,18 @@ path = Path(sys.argv[1])
 report = json.loads(path.read_text())
 expected = {
     "core": [
-        "native_UI_launch_without_model", "corrupt_import_rejected_without_partial_model",
+        "native_UI_launch_without_model", "SQLite_v1_migration_preserves_history_and_memory_CRUD", "corrupt_import_rejected_without_partial_model",
         "cancelled_import_removes_partial_file", "real_model_copy_size_and_SHA256_import",
         "low_storage_import_rejected_and_verified_model_preserved",
         "Android_JNI_load_and_stream_real_model", "actual_Android_clock_battery_and_policy",
+        "configured_JNI_generation_reports_real_metrics_and_rejects_invalid_settings",
         "model_Android_time_tool_round_trip_and_evidence", "two_consecutive_contextual_model_turns",
+        "SQLite_conversation_isolation_and_saved_memory_ground_real_reply",
         "native_cancellation_then_successful_generation", "unloaded_JNI_context_rejects_generation",
         "Compose_SAF_picker_imports_actual_pinned_model",
         "Compose_send_button_to_real_model_and_Room",
         "Compose_cancel_then_send_next_real_model_turn",
+        "Compose_controls_memory_and_collapsible_real_tool_evidence",
         "Compose_rotation_preserves_history_and_native_session",
     ],
     "restart": ["Room_history_survives_actual_process_restart", "reply_after_process_restart_and_model_reload",

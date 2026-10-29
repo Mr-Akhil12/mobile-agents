@@ -90,6 +90,7 @@ jobs:
           path: |
             validation-evidence/
             app/gradle.lockfile
+            app/schemas/
             inference-native/gradle.lockfile
             settings-gradle.lockfile
       - name: Remove temporary model fixture
