@@ -1,6 +1,6 @@
 # Durable continuation checkpoint — 29 October 2026
 
-Read this and MASTER_PLAN.md in full before editing. Deadline: **Friday 30 October 2026, 16:00 SAST**. Text first. **Xiaomi 15T acceptance is pending; Omni voice remains held until text/device gate review.** No merge, verified release tag, paid services, model weights or private logs are authorized.
+Read this and MASTER_PLAN.md in full before editing. Deadline: **Friday 30 October 2026, 16:00 SAST**. Text first. **Initial Xiaomi smoke is user-reported successful; detailed acceptance remains pending; Omni voice remains held until text/device gate review.** No merge, verified release tag, paid services, model weights or private logs are authorized.
 
 ## Verified candidate and actual CI
 
@@ -20,7 +20,7 @@ Compiler caching is opt-in and bounded to 1 GB. Latest cached x86_64 build took 
 
 ## Next authorized work and gate
 
-1. Use device-validation-handoff.md and device-validation-results.md for the exact delivered candidate. All physical result rows remain PENDING. User plans installation/testing on Xiaomi 15T when awake.
+1. User reports the first APK worked perfectly on Xiaomi 15T, importing the model already downloaded through Termux. Exact installed hash and individual offline/tool/lifecycle acceptance observations are not yet supplied. See device-validation-results.md; do not mark the full checklist passed. User requested Local Agents branding, bot icon and black/grey/white theme. Current patch changes presentation/version only; new CI must be inspected before delivering a new binary. Package dev.lfm.mobile and model pins/storage are preserved; ephemeral CI debug certificates can still prevent an in-place update.
 2. Review actual returned Xiaomi results, fix text P0s and rerun affected tests. Generic emulator evidence cannot establish Xiaomi ARM64/HyperOS, low-memory/background behavior, thermals, battery or phone latency.
 3. Keep Omni voice integration held until text/device gate review. No microphone/audio loop is implemented or validated. Do not waive physical acceptance or call this a verified release.
 4. Before editing, inspect current branch, PRs and active CI. Do not duplicate runs or concurrent edits. Preserve source, llama.cpp pin, licenses and user work; use expected-head updates without force push.

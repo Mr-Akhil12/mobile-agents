@@ -251,7 +251,7 @@ class LocalValidationRunner : Instrumentation() {
         step("Compose_send_button_to_real_model_and_Room") {
             val answer = completedUiTurn("Reply with only the word LOCAL.")
             check(answer.content.contains("LOCAL"))
-            waitForText("LFM · model answer")
+            waitForText("Local Agents · model answer")
             screenshot("real-chat")
         }
         step("Compose_cancel_then_send_next_real_model_turn") {
@@ -285,7 +285,7 @@ class LocalValidationRunner : Instrumentation() {
                 check(rows.last().role == "assistant" && rows.last().content.contains("LOCAL"))
             } finally { db.close() }
             launch()
-            waitForText("LFM · model answer")
+            waitForText("Local Agents · model answer")
             waitForText("Ready", 180000)
             screenshot("history-after-process-restart")
         }

@@ -15,8 +15,8 @@ android {
         applicationId = "dev.lfm.mobile"
         minSdk = 28
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0-dev"
+        versionCode = 2
+        versionName = "0.1.1-dev"
         ndk { abiFilters += lfmAbi }
         testInstrumentationRunner = "dev.lfm.mobile.validation.LocalValidationRunner"
     }

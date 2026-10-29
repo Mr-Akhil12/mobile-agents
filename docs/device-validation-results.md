@@ -1,6 +1,9 @@
-# Xiaomi validation results — blank, not executed
+# Xiaomi validation results — initial user report
 
-Status: **PENDING PHYSICAL TESTING**. Do not treat this template as a result.
+Status: **INITIAL PHYSICAL SMOKE REPORTED SUCCESSFUL BY USER**. The user reports: “The first apk worked absolutely perfectly with no issue” and imported the already-downloaded model from Termux rather than downloading it again. This records a user report, not agent-observed device testing. Exact installed APK hash, OS version and individual checklist observations have not been supplied; do not infer every row passed.
+
+Reusing an existing GGUF is supported: the native importer still checks exact pinned size/SHA-256. Termux was the source of the previously downloaded file, not evidence of a runtime dependency. Airplane-mode operation and whether Termux was closed during inference remain unconfirmed.
+
 
 - Tester/date/time (SAST):
 - Exact device model:
@@ -16,8 +19,8 @@ Status: **PENDING PHYSICAL TESTING**. Do not treat this template as a result.
 
 | Test | PASS / FAIL / BLOCKED | Actual input/output, evidence or error |
 | --- | --- | --- |
-| Install and launch | PENDING | |
-| Verified import and JNI load | PENDING | |
+| Install and launch | USER-REPORTED PASS | Initial APK reported working without issues on Xiaomi 15T; exact build not confirmed. |
+| Verified import and JNI load | USER-REPORTED PASS | Existing model previously downloaded through Termux imported successfully; no fresh download. No logs/timings supplied. |
 | Offline typed reply | PENDING | |
 | Android time tool and grounded follow-up | PENDING | |
 | Android battery evidence | PENDING | |
