@@ -1,5 +1,7 @@
 # Local Agents
 
+LFM Based Mobile Agent.
+
 Native Android assistant using Kotlin, Jetpack Compose, C++, and llama.cpp. The authoritative scope is [Master Build Plan v1.0](docs/MASTER_PLAN.md). Phase 1 target: **30 October 2026, 16:00 SAST**.
 
 This milestone implements text chat, local Room history, verified GGUF import, streamed native inference, cancellation, and allowlisted Android clock/battery tools. **Initial Xiaomi 15T smoke is user-reported successful; detailed physical acceptance remains pending.** Compilation or host inference does not prove Android runtime functionality. Voice is not enabled in this milestone; see [native integration status](docs/native-runtime.md).
