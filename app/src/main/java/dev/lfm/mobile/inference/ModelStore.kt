@@ -14,6 +14,7 @@ import java.security.MessageDigest
 class ModelStore(private val context: Context) {
     companion object {
         const val SHA256 = "41e51fb0be5f472d323055f2734d986d5a2429570973508fa6322f3f07f6d7f3"
+        const val FILENAME = "LFM3-1.7B-Q5_K_M.gguf"
         const val SIZE = 1258663200L
         const val REVISION = "4b423c332fd97961416f2e8b69467758fd27370d"
         const val SOURCE = "https://huggingface.co/LiquidAI/LFM3-1.7B-GGUF/blob/$REVISION/LFM3-1.7B-Q5_K_M.gguf"
@@ -21,6 +22,7 @@ class ModelStore(private val context: Context) {
     private val directory = File(context.filesDir, "models").apply { mkdirs() }
     val model = File(directory, "text.gguf")
     suspend fun importModel(uri: Uri, progress: (Long) -> Unit): String = withContext(Dispatchers.IO) {
+        ImportSelection.check(context, uri, FILENAME, SIZE)
         check(StatFs(directory.path).availableBytes > SIZE + 256L * 1024 * 1024) { "Need at least 1.5 GB free app storage" }
         val temp = File(directory, "text.gguf.partial")
         try {
@@ -44,7 +46,7 @@ class ModelStore(private val context: Context) {
                 }
             }
             val hash = digest.digest().joinToString("") { "%02x".format(it) }
-            check(count == SIZE && hash == SHA256) { "Checksum mismatch: expected official LFM3-1.7B Q5_K_M ($SHA256)" }
+            check(count == SIZE && hash == SHA256) { "Checksum mismatch · text import rejected: $count bytes, SHA-256 $hash. Expected $FILENAME ($SIZE bytes), SHA-256 $SHA256. Existing imported file was kept." }
             check(temp.renameTo(model)) { "Cannot commit verified model file" }
             hash
         } finally { temp.delete() }

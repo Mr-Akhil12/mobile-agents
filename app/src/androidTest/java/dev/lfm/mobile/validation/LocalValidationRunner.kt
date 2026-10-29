@@ -158,7 +158,7 @@ class LocalValidationRunner : Instrumentation() {
             val bad = File(targetContext.cacheDir, "bad.gguf").apply { writeText("not a GGUF") }
             var rejected = false
             try { models.importModel(Uri.fromFile(bad)) {} }
-            catch (e: IllegalStateException) { rejected = e.message.orEmpty().contains("Checksum mismatch") }
+            catch (e: IllegalStateException) { rejected = e.message.orEmpty().contains("Checksum mismatch") || e.message.orEmpty().contains("Expected LFM3-1.7B") }
             finally { bad.delete() }
             check(rejected && !models.model.exists())
             check(!File(models.model.parentFile, "text.gguf.partial").exists())
@@ -335,15 +335,21 @@ class LocalValidationRunner : Instrumentation() {
             launch()
             waitForText("Ready", 180000)
             clickText("Models")
+            waitForText("On-device models")
+            scrollToVisibleText("Unload and delete model", forward = true)
             clickText("Unload and delete model")
-            waitForText("Model removed")
-            clickText("Models")
-            clickText("Import GGUF")
+            scrollToVisibleText("Import text model", forward = false)
+            waitForText("Not imported")
+            clickText("Import text model")
             val roots = waitNode { it.contentDescription?.toString() == "Show roots" }
             check(roots.performAction(AccessibilityNodeInfo.ACTION_CLICK))
             clickText("Downloads")
             clickText("LFM3-1.7B-Q5_K_M.gguf")
-            waitForText("Ready · verified local model", 180000)
+            waitForText("On-device models")
+            scrollToVisibleText("Loaded now", forward = false)
+            waitForText("LFM3-1.7B · text and tools", 180000)
+            scrollToVisibleText("Available · verified import", forward = true)
+            clickText("Done")
             screenshot("saf-import")
         }
         step("Compose_send_button_to_real_model_and_Room") {
@@ -637,11 +643,12 @@ class LocalValidationRunner : Instrumentation() {
         error("Timed out waiting for enabled clickable $text")
     }
     private fun scrollToVisibleText(text: String, forward: Boolean) {
-        repeat(15) {
+        repeat(120) {
             if (find(uiRoot()) { it.isVisibleToUser && it.text?.toString()?.contains(text) == true } != null) return
             val list = find(uiRoot()) { it.isScrollable && it.isVisibleToUser }
-            check(list != null) { "No scrollable content while seeking $text" }
-            list.performAction(if (forward) AccessibilityNodeInfo.ACTION_SCROLL_FORWARD else AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)
+            // Accessibility can briefly expose the outgoing menu/picker window.
+            // Wait for the dialog's scrollable content rather than failing that transition.
+            list?.performAction(if (forward) AccessibilityNodeInfo.ACTION_SCROLL_FORWARD else AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)
             SystemClock.sleep(250)
         }
         error("Could not scroll to $text")

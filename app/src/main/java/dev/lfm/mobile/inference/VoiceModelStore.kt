@@ -16,8 +16,10 @@ enum class VoicePart(val filename: String, val bytes: Long, val sha256: String, 
 class VoiceModelStore(private val context: Context) {
     private val directory = File(context.filesDir, "models").apply { mkdirs() }
     fun file(part: VoicePart) = File(directory, part.local)
-    val ready get() = VoicePart.entries.all { file(it).length() == it.bytes }
+    fun available(part: VoicePart) = file(part).isFile && file(part).length() == part.bytes
+    val ready get() = VoicePart.entries.all { available(it) }
     suspend fun import(part: VoicePart, uri: Uri, progress: (Long) -> Unit) = withContext(Dispatchers.IO) {
+        ImportSelection.check(context, uri, part.filename, part.bytes)
         check(StatFs(directory.path).availableBytes > part.bytes + 256L * 1024 * 1024) { "Not enough free app storage for ${part.filename}" }
         val temp = File(directory, part.local + ".partial")
         try {
@@ -36,7 +38,7 @@ class VoiceModelStore(private val context: Context) {
                 }
             }
             val hash = digest.digest().joinToString("") { "%02x".format(it) }
-            check(count == part.bytes && hash == part.sha256) { "Voice checksum mismatch; expected the pinned ${part.filename}" }
+            check(count == part.bytes && hash == part.sha256) { "Import rejected: $count bytes, SHA-256 $hash. Expected ${part.filename} (${part.bytes} bytes), SHA-256 ${part.sha256}. Existing imported file was kept." }
             check(temp.renameTo(file(part))) { "Cannot commit verified voice file" }
         } finally { temp.delete() }
     }
