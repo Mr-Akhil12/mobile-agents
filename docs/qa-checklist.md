@@ -3,7 +3,7 @@
 Xiaomi 15T: the user reports both the original APK and latest delivered 0.2.0 working, including import of an existing Termux-downloaded GGUF. The supplied screenshot demonstrates a completed clock-tool answer and real displayed latency. This is user-device evidence; individual unreported rows remain pending. No physical phone is connected to CI. Huawei testing remains pending.
 
 - [x] User-reported install, launch, model import/load and local text functionality.
-- [x] Screenshot shows successful Android time-tool answer, Africa/Johannesburg, 29.5 s / 501 input / 31 generated / 2 model calls.
+- [x] Screenshot shows a clock-question answer with tool activity controls, Africa/Johannesburg, 29.5 s / 501 input / 31 generated / 2 model calls.
 - [ ] Confirm exact installed APK hash and Android API/HyperOS version.
 - [ ] Airplane mode, Wi-Fi/data off: repeat text and real clock tool with external servers stopped.
 - [ ] Battery request: compare OS-observed percentage/charging state.

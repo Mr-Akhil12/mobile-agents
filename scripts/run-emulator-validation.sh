@@ -64,7 +64,7 @@ for phase in core restart; do run_phase "$phase" || failed=1; done
 # the real Omni pair, which is copied/checksummed by the production store.
 adb shell run-as dev.lfm.mobile rm -f files/fixtures/model.gguf
 adb shell rm -f /sdcard/Download/LFM3-1.7B-Q5_K_M.gguf
-for fixture in omni.gguf omni-projector.gguf voice.wav update.apk; do
+for fixture in omni.gguf omni-projector.gguf voice.wav jfk.wav update.apk; do
     adb shell run-as dev.lfm.mobile sh -c "\"cat > files/fixtures/$fixture\"" < "$RUNNER_TEMP/$fixture"
 done
 run_phase voice || failed=1

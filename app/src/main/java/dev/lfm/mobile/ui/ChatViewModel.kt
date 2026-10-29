@@ -58,7 +58,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private var speechJob: Job? = null
     private var voiceReplyPending = false
     private var speakerInstance: OfflineSpeaker? = null
-    private fun speaker(): OfflineSpeaker = speakerInstance ?: OfflineSpeaker(getApplication()) { value -> mutable.update { it.copy(speaking = value) } }.also { speakerInstance = it }
+    private fun speaker(): OfflineSpeaker = speakerInstance ?: OfflineSpeaker(getApplication(), speaking = { value -> mutable.update { it.copy(speaking = value) } }, failure = { message -> status(message) }).also { speakerInstance = it }
     val updates = UpdateManager(application, viewModelScope)
     private var job: Job? = null
     init {
@@ -140,7 +140,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 agent.answer(text.trim(), ::status, { value -> mutable.update { it.copy(streaming = value) } },
                     settings = snapshot, conversationId = conversation, memory = dao.allMemories().map { it.content },
                     metrics = { measured -> mutable.update { it.copy(metrics = measured) } })
-                if (readAloud && foreground) dao.inConversation(conversation).lastOrNull { it.role == "assistant" }?.let { reply -> speechJob = viewModelScope.launch { status(speaker().speak(reply.content)) } }
+                if (readAloud && foreground) dao.inConversation(conversation).lastOrNull { it.role == "assistant" }?.let { reply -> speechJob = viewModelScope.launch {
+                    try { status(speaker().speak(reply.content)) }
+                    catch (e: CancellationException) { throw e }
+                    catch (e: Exception) { status("Offline speech unavailable; text reply is ready") }
+                } }
             }
             catch (e: CancellationException) { status("Cancelled"); throw e }
             catch (e: Exception) {
@@ -149,7 +153,11 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             } finally { mutable.update { it.copy(busy = false, working = false, streaming = "", elapsedMs = SystemClock.elapsedRealtime() - started) } }
         }
     }
-    fun cancel() { job?.cancel(); speechJob?.cancel(); microphone.stop(); speakerInstance?.stop(); InferenceRepository.cancel(); status("Stopping") }
+    fun cancel() {
+        val waitingForInference = state.value.busy
+        job?.cancel(); speechJob?.cancel(); microphone.stop(); speakerInstance?.stop(); InferenceRepository.cancel()
+        status(if (waitingForInference) "Stopping" else "Speech stopped")
+    }
     fun microphoneDenied() { status("Microphone permission denied. Typed chat still works.") }
     fun finishVoiceRecording() { microphone.stop() }
     fun onForeground(value: Boolean) { foreground = value; if (value) updates.checkIfDue(); if (!value) { speechJob?.cancel(); speakerInstance?.stop(); if (state.value.voiceBusy) cancel() } }
@@ -176,8 +184,10 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             mutable.update { it.copy(busy = true, loaded = false, voiceBusy = true, recording = false, status = "Preparing local Omni voice model") }
             try {
                 val rate = InferenceRepository.loadVoice(voiceModels.file(VoicePart.MODEL).path, voiceModels.file(VoicePart.PROJECTOR).path)
-                mutable.update { it.copy(recording = true, status = "Listening · tap Stop recording when finished") }
-                val audio = microphone.capture(rate) { seconds -> status(String.format(java.util.Locale.US, "Listening %.1f s · tap Stop recording", seconds)) }
+                mutable.update { it.copy(recording = false, status = "Starting microphone") }
+                val audio = microphone.capture(rate) { seconds -> mutable.update {
+                    it.copy(recording = true, status = String.format(java.util.Locale.US, "Listening %.1f s · tap Stop recording", seconds))
+                } }
                 mutable.update { it.copy(recording = false, status = "Transcribing locally with Omni") }
                 val result = try { JSONObject(InferenceRepository.transcribe(audio, rate)) } finally { audio.fill(0f) }
                 currentCoroutineContext().ensureActive()

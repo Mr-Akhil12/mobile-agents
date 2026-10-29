@@ -71,6 +71,7 @@ jobs:
           python3 scripts/fetch-validation-model.py "$RUNNER_TEMP/lfm-validation.gguf"
           python3 scripts/fetch-validation-model.py "$RUNNER_TEMP/omni.gguf" model-manifests/omni-model.json
           python3 scripts/fetch-validation-model.py "$RUNNER_TEMP/omni-projector.gguf" model-manifests/omni-projector.json
+          python3 scripts/fetch-validation-model.py "$RUNNER_TEMP/jfk.wav" model-manifests/voice-test-audio.json
           sudo apt-get update -qq && sudo apt-get install -y espeak-ng
           espeak-ng -v en-us -s 135 -w "$RUNNER_TEMP/voice.wav" 'The test word is mango.'
       - name: Enable accelerated emulator access
@@ -104,4 +105,4 @@ jobs:
             settings-gradle.lockfile
       - name: Remove temporary model fixture
         if: always()
-        run: rm -f "$RUNNER_TEMP/lfm-validation.gguf" "$RUNNER_TEMP/omni.gguf" "$RUNNER_TEMP/omni-projector.gguf" "$RUNNER_TEMP/voice.wav" "$RUNNER_TEMP/update.apk" "$RUNNER_TEMP/base.apk"
+        run: rm -f "$RUNNER_TEMP/lfm-validation.gguf" "$RUNNER_TEMP/omni.gguf" "$RUNNER_TEMP/omni-projector.gguf" "$RUNNER_TEMP/voice.wav" "$RUNNER_TEMP/jfk.wav" "$RUNNER_TEMP/update.apk" "$RUNNER_TEMP/base.apk"

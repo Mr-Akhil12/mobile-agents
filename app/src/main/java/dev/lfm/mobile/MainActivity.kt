@@ -85,6 +85,7 @@ private fun ChatScreen(vm: ChatViewModel) {
     val compact = LocalConfiguration.current.screenHeightDp < 480
     var input by rememberSaveable(conversation) { mutableStateOf("") }
     var showModels by remember { mutableStateOf(false) }
+    var voiceSettingsError by remember { mutableStateOf("") }
     var confirmClear by remember { mutableStateOf(false) }
     var showLicense by remember { mutableStateOf(false) }
     var showControls by remember { mutableStateOf(false) }
@@ -245,7 +246,11 @@ private fun ChatScreen(vm: ChatViewModel) {
                 TextButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(part.source))) }) { Text("Official " + if (part == VoicePart.MODEL) "Omni download" else "projector download") }
             }
             Text("Spoken replies use an installed offline Android TTS voice, not cloud speech. Microphone capture stops when the app leaves the foreground.")
-            TextButton(onClick = { context.startActivity(Intent("com.android.settings.TTS_SETTINGS")) }) { Text("Android voice settings") }
+            TextButton(onClick = {
+                try { context.startActivity(Intent("com.android.settings.TTS_SETTINGS")) }
+                catch (e: android.content.ActivityNotFoundException) { voiceSettingsError = "Open Android Settings and select an installed offline text-to-speech voice." }
+            }) { Text("Android voice settings") }
+            if (voiceSettingsError.isNotEmpty()) Text(voiceSettingsError)
         }
     }, confirmButton = { TextButton(enabled = !state.busy, onClick = { showModels = false; picker.launch(arrayOf("*/*")) }) { Text("Import GGUF") } }, dismissButton = {
         TextButton(onClick = { showModels = false }) { Text("Close") }

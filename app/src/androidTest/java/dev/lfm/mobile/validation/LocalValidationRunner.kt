@@ -432,31 +432,27 @@ class LocalValidationRunner : Instrumentation() {
             check(store.ready)
             evidence.put("voiceModelSHA256", VoicePart.MODEL.sha256).put("projectorSHA256", VoicePart.PROJECTOR.sha256)
         }
-        step("real_Omni_JNI_transcribes_synthetic_PCM_offline") {
+        step("real_Omni_JNI_reference_speech_accuracy_and_protocol_safety_offline") {
             val rate = InferenceRepository.loadVoice(store.file(VoicePart.MODEL).path, store.file(VoicePart.PROJECTOR).path)
-            val bytes = File(targetContext.filesDir, "fixtures/voice.wav").readBytes()
-            val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
-            check(String(bytes, 0, 4) == "RIFF" && String(bytes, 8, 4) == "WAVE")
-            var offset = 12; var sourceRate = 0; var pcm = ShortArray(0)
-            while (offset + 8 <= bytes.size) {
-                val name = String(bytes, offset, 4); val size = buffer.getInt(offset + 4); val start = offset + 8
-                check(size >= 0 && start.toLong() + size <= bytes.size)
-                if (name == "fmt ") { check(buffer.getShort(start).toInt() == 1 && buffer.getShort(start + 2).toInt() == 1 && buffer.getShort(start + 14).toInt() == 16); sourceRate = buffer.getInt(start + 4) }
-                if (name == "data") pcm = ShortArray(size / 2) { buffer.getShort(start + it * 2) }
-                offset = start + size + (size % 2)
-            }
-            check(sourceRate > 0 && pcm.isNotEmpty())
-            val samples = FloatArray((pcm.size.toLong() * rate / sourceRate).toInt()) { i ->
-                val pos = i.toDouble() * sourceRate / rate; val index = pos.toInt().coerceAtMost(pcm.lastIndex)
-                val next = (index + 1).coerceAtMost(pcm.lastIndex); val mix = pos - index
-                ((pcm[index] * (1 - mix) + pcm[next] * mix) / 32768.0).toFloat()
-            }
+            val samples = readPcmFixture("jfk.wav", rate)
             try {
                 val result = JSONObject(InferenceRepository.transcribe(samples, rate))
-                check(result.getString("transcript").contains("mango", ignoreCase = true)) { "Unexpected synthetic speech transcript: " + result.getString("transcript") }
-                evidence.put("syntheticASR", result).put("syntheticSource", "espeak-ng English: The test word is mango. No user audio.")
+                evidence.put("referenceASR", result).put("referenceSource", "Pinned public whisper.cpp JFK sample; no Whisper model/runtime and no user recording")
+                val expected = "And so my fellow Americans ask not what your country can do for you ask what you can do for your country"
+                val actual = result.getString("transcript")
+                val errorRate = wordErrorRate(expected, actual)
+                evidence.put("referenceWordErrorRate", errorRate)
+                check(errorRate <= 0.25 && actual.contains("country", true)) { "Reference speech accuracy failed: $actual (WER=$errorRate)" }
+                val synthetic = readPcmFixture("voice.wav", rate)
+                try {
+                    val diagnostic = JSONObject(InferenceRepository.transcribe(synthetic, rate))
+                    evidence.put("syntheticASR", diagnostic).put("syntheticExpected", "The test word is mango.")
+                        .put("syntheticAccuracyPassed", diagnostic.getString("transcript").contains("mango", true))
+                    // Preserve the robot-voice accuracy diagnostic. It is not
+                    // evidence that Xiaomi speech recognition is accurate.
+                } finally { synthetic.fill(0f) }
                 check(runCatching { InferenceRepository.transcribe(FloatArray(rate), rate) }.isFailure)
-            } finally { samples.fill(0f); pcm.fill(0); InferenceRepository.unloadVoice() }
+            } finally { samples.fill(0f); InferenceRepository.unloadVoice() }
         }
         step("microphone_permission_denial_preserves_typed_fallback") {
             check(targetContext.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
@@ -481,7 +477,7 @@ class LocalValidationRunner : Instrumentation() {
             closeActivity()
         }
         step("Android_TTS_offline_voice_or_explicit_text_fallback") {
-            val speaker = withContext(Dispatchers.Main) { OfflineSpeaker(targetContext) {} }
+            val speaker = withContext(Dispatchers.Main) { OfflineSpeaker(targetContext, speaking = {}) }
             try {
                 val outcome = withContext(Dispatchers.Main) { speaker.speak("Local Agents voice test.") }
                 check(outcome.contains("offline", true) || outcome.contains("TTS", true))
@@ -501,6 +497,37 @@ class LocalValidationRunner : Instrumentation() {
             try { db.messages().saveMemory(MemoryFact(content = "Same-key upgrade retention proof")) } finally { db.close() }
             targetContext.getSharedPreferences("validation-upgrade", 0).edit().putString("signer", update.signer).commit()
         }
+    }
+
+    private fun readPcmFixture(name: String, rate: Int): FloatArray {
+        val bytes = File(targetContext.filesDir, "fixtures/$name").readBytes()
+        val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        check(String(bytes, 0, 4) == "RIFF" && String(bytes, 8, 4) == "WAVE")
+        var offset = 12; var sourceRate = 0; var pcm = ShortArray(0)
+        while (offset + 8 <= bytes.size) {
+            val chunk = String(bytes, offset, 4); val size = buffer.getInt(offset + 4); val start = offset + 8
+            check(size >= 0 && start.toLong() + size <= bytes.size)
+            if (chunk == "fmt ") { check(buffer.getShort(start).toInt() == 1 && buffer.getShort(start + 2).toInt() == 1 && buffer.getShort(start + 14).toInt() == 16); sourceRate = buffer.getInt(start + 4) }
+            if (chunk == "data") pcm = ShortArray(size / 2) { buffer.getShort(start + it * 2) }
+            offset = start + size + size % 2
+        }
+        check(sourceRate > 0 && pcm.isNotEmpty())
+        return try { FloatArray((pcm.size.toLong() * rate / sourceRate).toInt()) { i ->
+            val pos = i.toDouble() * sourceRate / rate; val index = pos.toInt().coerceAtMost(pcm.lastIndex)
+            val next = (index + 1).coerceAtMost(pcm.lastIndex); val mix = pos - index
+            ((pcm[index] * (1 - mix) + pcm[next] * mix) / 32768.0).toFloat()
+        } } finally { pcm.fill(0) }
+    }
+    private fun wordErrorRate(expected: String, actual: String): Double {
+        fun words(value: String) = value.lowercase(java.util.Locale.ROOT).replace(Regex("[^a-z0-9 ]"), " ").split(Regex("\\s+")).filter { it.isNotBlank() }
+        val reference = words(expected); val hypothesis = words(actual)
+        var previous = IntArray(hypothesis.size + 1) { it }
+        for (i in reference.indices) {
+            val current = IntArray(hypothesis.size + 1); current[0] = i + 1
+            for (j in hypothesis.indices) current[j + 1] = minOf(previous[j + 1] + 1, current[j] + 1, previous[j] + if (reference[i] == hypothesis[j]) 0 else 1)
+            previous = current
+        }
+        return previous.last().toDouble() / reference.size.coerceAtLeast(1)
     }
 
     private suspend fun upgradeTests() {

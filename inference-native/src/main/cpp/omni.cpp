@@ -57,7 +57,7 @@ std::string OmniRuntime::transcribe(const std::vector<float> & samples, int rate
     if (std::sqrt(energy / samples.size()) < 0.002) throw std::runtime_error("No audible speech captured; try again");
     cancelled.store(false);
     const auto started = std::chrono::steady_clock::now();
-    common_chat_templates_inputs input; input.enable_thinking = false; input.chat_template_kwargs["enable_thinking"] = "false";
+    common_chat_templates_inputs input; input.enable_thinking = false; input.reasoning_format = COMMON_REASONING_FORMAT_DEEPSEEK; input.chat_template_kwargs["enable_thinking"] = "false";
     common_chat_msg system; system.role = "system"; system.content = "Perform ASR in English.";
     common_chat_msg user; user.role = "user"; user.content = mtmd_default_marker();
     input.messages = {system, user};
@@ -78,6 +78,7 @@ std::string OmniRuntime::transcribe(const std::vector<float> & samples, int rate
         throw std::runtime_error(cancelled.load() ? "Voice cancelled" : "Omni audio evaluation failed");
     if (cancelled.load()) throw std::runtime_error("Voice cancelled");
     common_params_sampling params; params.temp = 0; params.top_k = 1; params.penalty_repeat = 1.0f; params.seed = 42;
+    chat.apply_sampling(params);
     common_sampler_ptr sampler(common_sampler_init(model, params));
     if (!sampler) throw std::runtime_error("Cannot allocate ASR sampler");
     bool ended = false;
@@ -93,7 +94,7 @@ std::string OmniRuntime::transcribe(const std::vector<float> & samples, int rate
     }
     if (!ended) throw std::runtime_error("ASR token limit reached; transcript withheld");
     auto transcript = chat.finish().content;
-    if (transcript.empty() || transcript.find("<|") != std::string::npos || transcript.find("<__") != std::string::npos)
+    if (transcript.empty() || transcript.find("<|") != std::string::npos || transcript.find("<__") != std::string::npos || transcript.find("<think") != std::string::npos || transcript.find("</think") != std::string::npos || transcript.find("<tool_call") != std::string::npos)
         throw std::runtime_error("Omni returned an empty or protocol transcript");
     return common_json({{"transcript", transcript}, {"sample_rate", rate}, {"samples", samples.size()}, {"generated_tokens", generated},
         {"audio_ms", samples.size() * 1000.0 / rate}, {"asr_ms", std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count()}}).dump();
