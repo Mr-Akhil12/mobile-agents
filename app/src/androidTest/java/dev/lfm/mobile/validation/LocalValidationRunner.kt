@@ -15,6 +15,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 import androidx.room.Room
 import dev.lfm.mobile.MainActivity
 import dev.lfm.mobile.agent.AgentCoordinator
+import dev.lfm.mobile.agent.AnswerPolicy
 import dev.lfm.mobile.data.ChatDatabase
 import dev.lfm.mobile.data.ChatMessage
 import dev.lfm.mobile.data.MemoryFact
@@ -234,7 +235,14 @@ class LocalValidationRunner : Instrumentation() {
             try { InferenceRepository.generateConfigured(prompt, "[]", GenerationSettings(temperature = 3f)) {} }
             catch (e: IllegalStateException) { rejected = e.message.orEmpty().contains("settings out of supported range") }
             check(rejected)
-            evidence.put("nativeMetrics", JSONObject(measured.toJson())).put("supportsThinking", InferenceRepository.supportsThinking())
+            val thinkingSupported = InferenceRepository.supportsThinking()
+            if (thinkingSupported) {
+                val thought = JSONObject(InferenceRepository.generateConfigured(prompt, "[]", GenerationSettings(thinking = true, maxTokens = 1024)) {})
+                check(thought.optString("content").contains("LOCAL"))
+                AnswerPolicy.validate(thought.getString("content"))
+                evidence.put("thinkingEnabledMetrics", thought.getJSONObject("local_metrics"))
+            }
+            evidence.put("nativeMetrics", JSONObject(measured.toJson())).put("supportsThinking", thinkingSupported)
         }
         val db = Room.databaseBuilder(targetContext, ChatDatabase::class.java, "validation-chat.db").build()
         try {

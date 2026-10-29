@@ -47,4 +47,7 @@ extern "C" JNIEXPORT jstring JNICALL Java_dev_lfm_nativebridge_NativeInference_g
 extern "C" JNIEXPORT void JNICALL Java_dev_lfm_nativebridge_NativeInference_cancel(JNIEnv *, jobject) { runtime.cancel(); }
 extern "C" JNIEXPORT void JNICALL Java_dev_lfm_nativebridge_NativeInference_unload(JNIEnv *, jobject) { runtime.unload(); }
 
-extern "C" JNIEXPORT jboolean JNICALL Java_dev_lfm_nativebridge_NativeInference_supportsThinking(JNIEnv *, jobject) { return runtime.supports_thinking(); }
+extern "C" JNIEXPORT jboolean JNICALL Java_dev_lfm_nativebridge_NativeInference_supportsThinking(JNIEnv * env, jobject) {
+    try { return runtime.supports_thinking(); }
+    catch (const std::exception & e) { fail(env, e); return JNI_FALSE; }
+}

@@ -7,7 +7,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
@@ -77,11 +76,11 @@ private fun ChatScreen(vm: ChatViewModel) {
                 Text(stringResource(R.string.app_name), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(vertical = 16.dp))
                 TextButton(onClick = { showModels = true }) { Text("Models") }
             }
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-                TextButton(onClick = vm::newConversation, enabled = !state.busy) { Text("New chat") }
-                TextButton(onClick = { showHistory = true }, enabled = !state.busy) { Text("Chats") }
-                TextButton(onClick = { showMemory = true }, enabled = !state.busy) { Text("Memory") }
-                TextButton(onClick = { showControls = true }, enabled = !state.busy) { Text("Controls") }
+            Row(Modifier.fillMaxWidth()) {
+                TextButton(onClick = vm::newConversation, enabled = !state.busy, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp)) { Text("New chat") }
+                TextButton(onClick = { showHistory = true }, enabled = !state.busy, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp)) { Text("Chats") }
+                TextButton(onClick = { showMemory = true }, enabled = !state.busy, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp)) { Text("Memory") }
+                TextButton(onClick = { showControls = true }, enabled = !state.busy, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp)) { Text("Controls") }
             }
             Text("Private · On-device", style = MaterialTheme.typography.labelMedium)
             if (state.startedAtMs > 0) Text(
