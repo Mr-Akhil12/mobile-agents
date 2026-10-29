@@ -6,7 +6,7 @@ This milestone implements text chat, local Room history, verified GGUF import, s
 
 ## Install on Xiaomi 15T
 
-For the supplied pre-CI candidate, start with the [device-validation handoff](docs/device-validation-handoff.md) and [blank results sheet](docs/device-validation-results.md). Publication recovery is documented [here](docs/publication-handoff.md); the bundled APK is available even while GitHub publication is blocked.
+For the exact verified CI candidate, start with the [device-validation handoff](docs/device-validation-handoff.md) and [blank results sheet](docs/device-validation-results.md). [Latest evidence](docs/CONTINUATION.md): 18 real-model Android x86_64 emulator checks and 11 policy tests passed; ARM64 build/lint passed. Physical Xiaomi acceptance remains pending.
 
 1. Download the `lfm-arm64-debug-<commit>` ZIP from the repository's **Actions > Android native build > successful run > Artifacts**. Extract `app-debug.apk`. Builds are debug-signed test APKs, not store releases. A CI artifact exists only after the workflow actually succeeds.
 2. Transfer the APK to your phone, open it in Files, and allow that app to install unknown apps when Android asks. No root, Termux, login, backend, or API key is needed. Android 9/API 28+ and arm64 are required; Xiaomi runtime remains unverified.
@@ -24,8 +24,8 @@ Install JDK 17 and Android SDK, accept the Android SDK licenses, then:
 ```sh
 git clone --recurse-submodules https://github.com/Mr-Akhil12/mobile-agents.git
 cd mobile-agents
-# If reviewing the initial implementation PR:
-git checkout feature/native-text-milestone
+# Latest text candidate and emulator validation PR:
+git checkout feature/emulator-validation
 git submodule update --init --recursive
 sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'ndk;28.0.13004108' 'cmake;3.22.1'
 # Set ANDROID_HOME or create local.properties with your sdk.dir.

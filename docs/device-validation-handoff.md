@@ -4,17 +4,15 @@ Deadline: **Friday 30 October 2026, 16:00 SAST**. This handoff is prepared; phys
 
 ## Exact candidate
 
-- File: `lfm-arm64-debug.apk`, included in the continuation ZIP; 34,178,797 bytes.
-- APK SHA-256: `bcfd317671493aa8f3536be90c3cf8365031070b900f1617f8cd897628d89f2b`.
-- Implementation commit: `bd2c04099a8347ebed868d39852b4ea1bbc12fd4`.
-- Implementation tree: `07d03d5b62f5665f50ea9bc1d28f612c2f75e8fe`.
-- Later documentation commits do not rebuild or change this APK. Record a new APK's own CI commit/hash if switching candidates; do not mix evidence.
-- Git Data restoration maps the original implementation to remote commit `c26114fb55f94be81cf098fbccd38fc0d2c6ddf6` with identical tree. Commit metadata differs; the supplied APK still comes from the original bundled build.
-- Package `dev.lfm.mobile`; arm64; API 28 minimum. Debug-signed private prototype.
+- File: **LFM_TEXT_FIRST_XIAOMI.apk**, 34,178,221 bytes. Also available as app-debug.apk in [ARM64 CI run 40785098594](https://github.com/Mr-Akhil12/mobile-agents/actions/runs/40785098594), APK artifact **12859576627**.
+- APK SHA-256: **ef2481e2bdfd34d608adf33d6e9fd178849348487a8aa0032c33cb8e7a32feb1**.
+- Feature implementation head: **2efa7cf63dedc73f98391c83b16089581b462620** (PR #2). Actual CI checkout: **daf3957c67cf5c5038f4e083e5358af4009074c9**; tree **ca0438578600efab6c04ed08339928d95bc414c8**. Later documentation changes do not rebuild this binary.
+- Package dev.lfm.mobile; arm64-v8a; API 28 minimum / 35 target. Debug-signed prototype, not a verified release. CI verified APK signature v2 and 16 KB ZIP alignment.
+- Debug certificate SHA-256: **6c1622a452322a902d36abf8bdc96a7f5b14c4ffe050a88038a44e86cd1a6394**. A previous candidate may have a different debug key.
 
 ## Install and prepare
 
-1. Extract the continuation ZIP and transfer the APK to Xiaomi 15T. Open it from Files and allow installation from that app when Android asks. Open **LFM**. No Termux or server is needed. Close any Termux model/server process before the smoke run so it does not consume RAM.
+1. Download this exact candidate and transfer the APK to Xiaomi 15T. Open it from Files and allow installation from that app when Android asks. Open **LFM**. No Termux or server is needed. Close any Termux model/server process before the smoke run so it does not consume RAM.
 2. If an update fails due to a signing certificate mismatch, keep the installed version/data until you choose how to proceed. Uninstall deletes history and the app-private model; save any wanted data first. Independent CI builds may use a different debug key.
 3. In **Models**, read **Model license (offline)**. Obtain the exact `LFM3-1.7B-Q5_K_M.gguf` through **Official model download** or copy your existing matching file into shared Downloads. Files inside Termux private storage are not visible to this APK. An optional one-time copy from Termux to shared storage is preparation only; the APK must subsequently run independently.
 4. The model is 1,258,663,200 bytes with SHA-256 `41e51fb0be5f472d323055f2734d986d5a2429570973508fa6322f3f07f6d7f3`. Keep at least 1.5 GB free app storage **in addition to** that downloaded file. Choose **Import GGUF**, select it and wait for checksum verification and Ready. Other quantizations/revisions are rejected.
@@ -43,7 +41,7 @@ Then complete the remaining [QA checklist](qa-checklist.md): corrupt/partial imp
 
 Return the filled results sheet (or paste its fields) with exact device/OS version, candidate hash, prompts, observed output, failures and date/time in SAST. Screenshots may help; include only test content and redact personal notifications. Do not upload model weights, chat databases, credentials or private logs to the public repository.
 
-- **Current status:** host-native behavior and APK build reported in the original handoff; bundle hashes independently rechecked in this continuation. No new Android build or physical test performed here. Remote CI has not run.
+- **Current status:** ARM64 build/lint and 11 policy tests passed in run 40785098594. Generic Android x86_64 run 40785098598 passed 18 real-model/JNI/UI/tool/lifecycle checks, including SAF import, cancellation, low-storage recovery and rotation. These reports were downloaded and inspected. **Physical Xiaomi launch/inference, HyperOS behavior and performance remain untested.**
 - **Text GO:** native launch/import, offline inference, real Android time evidence, history/restart and independence pass on Xiaomi, with other required QA checked and material failures resolved. Record known limits and exact candidate.
 - **Text NO-GO:** no native inference, missing actual time-tool evidence, persistent crash, hidden network/Termux dependency or falsely reported execution.
 - **Voice gate:** no Omni implementation advance before device handoff/results review and text P0 stability. At Thursday's technical gate, keep text-first if voice cannot be genuinely demonstrated. No verified release tag until the physical acceptance gate passes.

@@ -6,8 +6,10 @@ Status: **PENDING PHYSICAL TESTING**. Do not treat this template as a result.
 - Exact device model:
 - Android version/API and HyperOS version:
 - Free storage before import:
-- APK filename/SHA-256:
-- APK implementation or CI source commit:
+- Prepared candidate (confirm installed file): LFM_TEXT_FIRST_XIAOMI.apk; SHA-256 ef2481e2bdfd34d608adf33d6e9fd178849348487a8aa0032c33cb8e7a32feb1
+- APK filename/SHA-256 actually installed:
+- Prepared CI source: daf3957c67cf5c5038f4e083e5358af4009074c9, run 40785098594, artifact 12859576627
+- APK implementation or CI source actually installed:
 - Model filename/SHA-256 verified by app:
 - Airplane mode / Wi-Fi / mobile data state:
 - Termux absent or closed; external model servers stopped:
