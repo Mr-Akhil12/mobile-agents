@@ -35,7 +35,13 @@ interface MessageDao {
     @Transaction suspend fun clearChat(conversation: String) { clearConversation(conversation); renameConversation(conversation, "New chat") }
     @Insert(onConflict = OnConflictStrategy.IGNORE) suspend fun createConversation(conversation: Conversation)
     @Query("SELECT * FROM conversations ORDER BY createdAt DESC") fun conversations(): Flow<List<Conversation>>
+    @Query("SELECT * FROM conversations WHERE id = :id") suspend fun conversation(id: String): Conversation?
     @Query("UPDATE conversations SET title = :title WHERE id = :id") suspend fun renameConversation(id: String, title: String)
+    @Query("SELECT * FROM conversations ORDER BY createdAt DESC") suspend fun allConversations(): List<Conversation>
+    @Query("SELECT DISTINCT c.* FROM conversations c LEFT JOIN messages m ON c.id = m.conversationId WHERE instr(lower(c.title), lower(:query)) > 0 OR instr(lower(m.content), lower(:query)) > 0 ORDER BY c.createdAt DESC") fun searchConversations(query: String): Flow<List<Conversation>>
+    @Query("SELECT * FROM messages WHERE (:conversation IS NULL OR conversationId = :conversation) ORDER BY id LIMIT :limit OFFSET :offset") suspend fun exportPage(conversation: String?, limit: Int, offset: Int): List<ChatMessage>
+    @Query("DELETE FROM conversations WHERE id = :id") suspend fun removeConversation(id: String)
+    @Transaction suspend fun deleteChat(id: String) { clearConversation(id); removeConversation(id) }
     @Insert suspend fun saveMemory(memory: MemoryFact)
     @Query("SELECT * FROM memories ORDER BY id") fun observeMemories(): Flow<List<MemoryFact>>
     @Query("SELECT * FROM memories ORDER BY id") suspend fun allMemories(): List<MemoryFact>

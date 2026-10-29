@@ -1,7 +1,7 @@
 name: Android native build
 on:
   push:
-    branches: [main, 'feature/**', 'fix/**']
+    branches: [main]
   pull_request:
   workflow_dispatch:
 permissions:

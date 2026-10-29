@@ -9,7 +9,7 @@ collect_evidence() {
     for report in core.json restart.json voice.json upgrade.json core-ui.json restart-ui.json voice-ui.json upgrade-ui.json; do
         adb exec-out run-as dev.lfm.mobile cat "files/validation/$report" > "validation-evidence/$report" 2>/dev/null || true
     done
-    for shot in onboarding saf-import real-chat cancel-recovery landscape-chat portrait-after-rotation history-after-process-restart cleared-chat expanded-tool-evidence collapsed-tool-evidence generation-controls saved-memory core-final restart-final voice-final upgrade-final after-package-upgrade; do
+    for shot in onboarding saf-import real-chat cancel-recovery landscape-chat portrait-after-rotation history-after-process-restart cleared-chat expanded-tool-evidence collapsed-tool-evidence generation-controls saved-memory core-final restart-final voice-final upgrade-final after-package-upgrade chat-search voice-send voice-controls; do
         adb exec-out run-as dev.lfm.mobile cat "files/validation/$shot.png" > "validation-evidence/$shot.png" 2>/dev/null || true
     done
     find validation-evidence -type f -empty -delete

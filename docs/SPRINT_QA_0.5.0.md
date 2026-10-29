@@ -1,0 +1,16 @@
+# Xiaomi post-update flow — Local Agents 0.5.0
+
+New checks remain pending physical acceptance. User already confirmed 0.4.1 voice playback and smooth in-app update. Emulator evidence is separate.
+
+1. Update in place: Menu → App updates → Check now → Download → Install. Confirm 0.5.0 and existing chats, memory and imported files. Do not uninstall if Android refuses; retain the app and report the message.
+2. Text baseline: ask the phone time, expand actual tool evidence and compare clock/timezone. Send a follow-up, cancel a longer answer and send another short prompt.
+3. Direct voice: Controls → Review transcript first OFF. Tap mic, wait for Listening, speak, tap arrow Send. Expect Transcribing → Restoring text → single automatic submission → answer/spoken reply. No extra Stop-recording or second Send. Confirm the question appears once. Details show voice timings separately from answer generation.
+4. Review mode: switch Review transcript first ON. Speak and tap Send; expect editable transcript, no submitted question yet. Correct a word and Send. Restart to check preference persists. A recording reaching the 20-second cap prepares a draft without submitting by itself.
+5. Cancel while listening and while transcribing; background during capture/transcription. Expect microphone closure, no late automatic submission/speech and typed recovery. Stop speaking during an audible answer, then start another prompt.
+6. Chats: create two distinct chats. Sidebar search by title and message phrase. Use row ••• or Menu → Chat options to rename; restart to check persistence. Try Keep chat, then delete one chat. Other chats and saved memory remain. Rotate portrait/landscape and check buttons/dialogs are reachable.
+7. Memory: save “My test colour is cobalt.” Search, edit the colour and ask from a new chat. Delete with confirmation, then check the old fact is no longer presented as saved memory. Clearing/deleting chat must not delete notes. Context counts show whole notes that fit.
+8. Export this chat to a private document location and open the JSON; check chosen chat/messages/Unicode/newlines. Export all data separately confirms all chats plus saved memory. Cancel picker once; app stays usable. Exports are readable, not encrypted backups. Import/restore is not implemented.
+9. Make 15 short turns and a recent follow-up. Older messages remain scrollable/searchable; recent model context may be smaller. Explicitly save important lasting facts. Oversized input fails clearly without deleting history; a short retry works.
+10. Offline gate: import all three files/install offline Android TTS voice first. Enable airplane mode and separately turn Wi-Fi off; close Termux. Repeat text clock/tool and mic → Send → answer → spoken reply. Record which stages work. Updates need network. Re-enable connectivity afterward.
+
+Report version, test number, exact error, duplicate questions, microphone state, speech interruption, missing data or export failure. Keep screenshots/exports private; do not publish notifications/conversations. Phone/emulator timings are distinct. Calls, Bluetooth routing, wake word, generated summaries and semantic memory are outside this sprint's acceptance claims.
