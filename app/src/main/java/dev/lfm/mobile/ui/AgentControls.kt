@@ -19,9 +19,9 @@ fun AgentControls(vm: ChatViewModel, onDismiss: () -> Unit) {
             Text("Applied to the next prompt. Higher limits can increase latency and memory use. Context uses four recent completed turns in this chat plus saved memory; older chats are not automatically searched.")
             Text("Temperature · %.2f".format(settings.temperature))
             Slider(value = settings.temperature, onValueChange = { vm.updateSettings(settings.copy(temperature = it)) }, valueRange = 0f..2f, enabled = !state.busy)
-            Text("Total token budget · ${settings.maxTokens}")
+            Text("Token budget per model call · ${settings.maxTokens}")
             Slider(value = settings.maxTokens.toFloat(), onValueChange = { vm.updateSettings(settings.copy(maxTokens = it.toInt())) }, valueRange = 128f..1024f, steps = 6, enabled = !state.busy)
-            Text("Budget includes hidden reasoning and tool requests. Incomplete answers are rejected at the limit.", style = MaterialTheme.typography.labelSmall)
+            Text("Each call budget includes hidden reasoning and tool requests; a prompt may use multiple calls. Incomplete answers are rejected at the limit.", style = MaterialTheme.typography.labelSmall)
             Row {
                 Text("Thinking", modifier = Modifier.weight(1f))
                 Switch(checked = settings.thinking && state.supportsThinking, onCheckedChange = { vm.updateSettings(settings.copy(thinking = it)) }, enabled = state.loaded && state.supportsThinking && !state.busy)

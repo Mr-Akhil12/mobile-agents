@@ -113,7 +113,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             val started = SystemClock.elapsedRealtime()
             val conversation = current.value
             val snapshot = settings.value.copy(thinking = settings.value.thinking && state.value.supportsThinking)
-            mutable.update { it.copy(busy = true, working = true, streaming = "", startedAtMs = started, elapsedMs = 0, metrics = null) }
+            mutable.update { it.copy(busy = true, working = true, streaming = "", status = "Preparing prompt", startedAtMs = started, elapsedMs = 0, metrics = null) }
             try {
                 if (dao.inConversation(conversation).isEmpty()) dao.renameConversation(conversation, text.trim().take(60))
                 agent.answer(text.trim(), ::status, { value -> mutable.update { it.copy(streaming = value) } },

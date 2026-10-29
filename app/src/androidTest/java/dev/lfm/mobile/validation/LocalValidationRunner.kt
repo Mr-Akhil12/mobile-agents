@@ -106,7 +106,7 @@ class LocalValidationRunner : Instrumentation() {
         check(fixture.length() == ModelStore.SIZE) { "Missing full pinned GGUF fixture" }
         step("native_UI_launch_without_model") {
             launch()
-            waitForText("Private · On-device")
+            waitForText("How can I help?")
             waitForText("Local Agents")
             waitForText("Import the official text GGUF to begin")
             screenshot("onboarding")
@@ -223,6 +223,19 @@ class LocalValidationRunner : Instrumentation() {
             check(!tools.execute("get_local_time", "{\"extra\":1}", "args").getBoolean("success"))
             check(!tools.execute("get_local_time", "{} trailing", "trailing").getBoolean("success"))
             evidence.put("AndroidClock", clock).put("emulatedBattery", battery)
+        }
+        step("native_prefix_cache_reuses_exact_input_and_invalidates_changed_system") {
+            val prompt = """[{"role":"system","content":"You are a local assistant. Follow the latest request and reply concisely. Never include planning traces."},{"role":"user","content":"Reply with only the word LOCAL."}]"""
+            val first = JSONObject(InferenceRepository.generate(prompt, "[]") {})
+            val warm = JSONObject(InferenceRepository.generate(prompt, "[]") {})
+            check(warm.optString("content").contains("LOCAL"))
+            val stats = warm.getJSONObject("local_metrics")
+            check(stats.getLong("reused_prompt_tokens") > 0)
+            check(stats.getLong("prompt_tokens") < stats.getLong("prompt_total_tokens"))
+            val changed = JSONObject(InferenceRepository.generate(prompt.replace("You are a local assistant", "Different system instructions: you are a local assistant"), "[]") {})
+            check(changed.getJSONObject("local_metrics").getLong("reused_prompt_tokens") == 0L)
+            check(changed.optString("content").contains("LOCAL"))
+            evidence.put("coldPrefill", first.getJSONObject("local_metrics")).put("warmPrefill", stats)
         }
         step("configured_JNI_generation_reports_real_metrics_and_rejects_invalid_settings") {
             val prompt = """[{"role":"user","content":"Reply with only the word LOCAL."}]"""
@@ -368,8 +381,9 @@ class LocalValidationRunner : Instrumentation() {
             }
             check(visible) { "Tool evidence dropdown not reachable" }
             clickText("Show evidence ▾")
-            waitForText("success")
+            scrollToVisibleText("success", forward = true)
             screenshot("expanded-tool-evidence")
+            scrollToVisibleText("Hide evidence ▴", forward = false)
             clickText("Hide evidence ▴")
             screenshot("collapsed-tool-evidence")
         }
@@ -455,16 +469,33 @@ class LocalValidationRunner : Instrumentation() {
         error("Timed out waiting for UI node; $phase")
     }
     private fun waitForText(text: String, timeout: Long = 30000) =
-        waitNode(timeout) { it.text?.toString()?.contains(text) == true }
+        waitNode(timeout) { it.text?.toString()?.contains(text) == true || it.contentDescription?.toString()?.contains(text) == true }
     private fun clickText(text: String) {
         val end = SystemClock.elapsedRealtime() + 30000
+        var openedMenu = false
         while (SystemClock.elapsedRealtime() < end) {
-            var node = find(uiRoot()) { it.text?.toString() == text }
+            val root = uiRoot()
+            var node = find(root) { it.text?.toString() == text || it.contentDescription?.toString() == text }
+            if (node == null && !openedMenu && text in setOf("Models", "Controls", "Memory", "Clear chat")) {
+                var more = find(root) { it.contentDescription?.toString() == "Menu" }
+                while (more != null && !more.isClickable) more = more.parent
+                if (more?.isEnabled == true && more.isVisibleToUser && more.performAction(AccessibilityNodeInfo.ACTION_CLICK)) openedMenu = true
+            }
             while (node != null && !node.isClickable) node = node.parent
             if (node?.isEnabled == true && node.isVisibleToUser && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return
             SystemClock.sleep(100)
         }
         error("Timed out waiting for enabled clickable $text")
+    }
+    private fun scrollToVisibleText(text: String, forward: Boolean) {
+        repeat(15) {
+            if (find(uiRoot()) { it.isVisibleToUser && it.text?.toString()?.contains(text) == true } != null) return
+            val list = find(uiRoot()) { it.isScrollable && it.isVisibleToUser }
+            check(list != null) { "No scrollable content while seeking $text" }
+            list.performAction(if (forward) AccessibilityNodeInfo.ACTION_SCROLL_FORWARD else AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)
+            SystemClock.sleep(250)
+        }
+        error("Could not scroll to $text")
     }
     private fun sendFromUi(text: String) {
         val field = waitNode { node -> node.isEditable && node.isEnabled && node.isVisibleToUser &&
@@ -486,7 +517,7 @@ class LocalValidationRunner : Instrumentation() {
                 val fresh = db.messages().all().filter { it.id > before }
                 fresh.firstOrNull { it.role == "error" }?.let { error("App rejected turn: ${it.content}") }
                 fresh.lastOrNull { it.role == "assistant" }?.let {
-                    waitForText("Finished")
+                    waitNode { it.isEditable && it.isEnabled && it.isVisibleToUser }
                     return it
                 }
                 SystemClock.sleep(200)

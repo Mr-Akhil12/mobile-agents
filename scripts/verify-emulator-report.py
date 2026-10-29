@@ -13,6 +13,7 @@ expected = {
         "cancelled_import_removes_partial_file", "real_model_copy_size_and_SHA256_import",
         "low_storage_import_rejected_and_verified_model_preserved",
         "Android_JNI_load_and_stream_real_model", "actual_Android_clock_battery_and_policy",
+        "native_prefix_cache_reuses_exact_input_and_invalidates_changed_system",
         "configured_JNI_generation_reports_real_metrics_and_rejects_invalid_settings",
         "model_Android_time_tool_round_trip_and_evidence", "two_consecutive_contextual_model_turns",
         "SQLite_conversation_isolation_and_saved_memory_ground_real_reply",
