@@ -352,7 +352,7 @@ class LocalValidationRunner : Instrumentation() {
             waitForText("Worked for ")
             var visible = false
             for (attempt in 0 until 10) {
-                if (find(uiAutomation.rootInActiveWindow) { it.text?.toString() == "Show evidence ▾" } != null) { visible = true; break }
+                if (find(uiAutomation.rootInActiveWindow) { it.text?.toString() == "Show evidence ▾" && it.isVisibleToUser } != null) { visible = true; break }
                 val list = find(uiAutomation.rootInActiveWindow) { it.isScrollable }
                 list?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)
                 SystemClock.sleep(300)
@@ -451,7 +451,8 @@ class LocalValidationRunner : Instrumentation() {
         error("Timed out waiting for enabled clickable $text")
     }
     private fun sendFromUi(text: String) {
-        val field = waitNode { it.isEditable && it.isEnabled }
+        val field = waitNode { node -> node.isEditable && node.isEnabled && node.isVisibleToUser &&
+            find(node) { it.text?.toString() == "Message Local Agents" } != null }
         check(field.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, Bundle().apply {
             putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
         }))
