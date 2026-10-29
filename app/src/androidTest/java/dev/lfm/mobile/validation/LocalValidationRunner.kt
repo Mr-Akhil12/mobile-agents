@@ -28,6 +28,21 @@ import dev.lfm.mobile.inference.InferenceRepository
 import dev.lfm.mobile.inference.ModelStore
 import dev.lfm.mobile.tools.ToolRegistry
 import dev.lfm.nativebridge.NativeInference
+import dev.lfm.nativebridge.NativeOmni
+import dev.lfm.mobile.inference.VoiceModelStore
+import dev.lfm.mobile.inference.VoicePart
+import dev.lfm.mobile.voice.MicrophoneCapture
+import dev.lfm.mobile.voice.OfflineSpeaker
+import dev.lfm.mobile.updates.UpdateManager
+import dev.lfm.mobile.updates.AppUpdate
+import androidx.lifecycle.ViewModelProvider
+import dev.lfm.mobile.ui.ChatViewModel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.io.File
 import java.io.FileOutputStream
 import java.time.ZonedDateTime
@@ -63,6 +78,7 @@ class LocalValidationRunner : Instrumentation() {
                 when (phase) {
                     "core" -> coreTests()
                     "restart" -> restartTests()
+                    "voice" -> voiceTests()
                     else -> error("Unknown validation phase: $phase")
                 }
             }
@@ -72,7 +88,7 @@ class LocalValidationRunner : Instrumentation() {
         } finally {
             runCatching { screenshot("$phase-final") }
             runCatching { dumpUi() }
-            runCatching { NativeInference.unload() }
+            runCatching { NativeInference.unload() }; runCatching { NativeOmni.unload() }
             val report = JSONObject().put("phase", phase).put("passed", passed)
                 .put("evidenceLevel", "Android x86_64 emulator; NOT Xiaomi/ARM64 validation")
                 .put("device", android.os.Build.MODEL).put("sdk", android.os.Build.VERSION.SDK_INT)
@@ -396,6 +412,89 @@ class LocalValidationRunner : Instrumentation() {
             waitNode { it.isEditable && it.isEnabled }
             screenshot("portrait-after-rotation")
             closeActivity()
+        }
+    }
+
+    private suspend fun voiceTests() {
+        val store = VoiceModelStore(targetContext)
+        step("voice_pair_rejects_corrupt_import_and_verifies_real_files") {
+            val corrupt = File(targetContext.cacheDir, "bad-voice.gguf").apply { writeText("invalid") }
+            check(runCatching { store.import(VoicePart.MODEL, Uri.fromFile(corrupt)) {} }.isFailure)
+            corrupt.delete()
+            for (part in VoicePart.entries) {
+                val fixture = File(targetContext.filesDir, "fixtures/" + part.local)
+                store.import(part, Uri.fromFile(fixture)) {}
+                check(store.file(part).length() == part.bytes)
+                fixture.delete()
+            }
+            check(store.ready)
+            evidence.put("voiceModelSHA256", VoicePart.MODEL.sha256).put("projectorSHA256", VoicePart.PROJECTOR.sha256)
+        }
+        step("real_Omni_JNI_transcribes_synthetic_PCM_offline") {
+            val rate = InferenceRepository.loadVoice(store.file(VoicePart.MODEL).path, store.file(VoicePart.PROJECTOR).path)
+            val bytes = File(targetContext.filesDir, "fixtures/voice.wav").readBytes()
+            val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+            check(String(bytes, 0, 4) == "RIFF" && String(bytes, 8, 4) == "WAVE")
+            var offset = 12; var sourceRate = 0; var pcm = ShortArray(0)
+            while (offset + 8 <= bytes.size) {
+                val name = String(bytes, offset, 4); val size = buffer.getInt(offset + 4); val start = offset + 8
+                check(size >= 0 && start.toLong() + size <= bytes.size)
+                if (name == "fmt ") { check(buffer.getShort(start).toInt() == 1 && buffer.getShort(start + 2).toInt() == 1 && buffer.getShort(start + 14).toInt() == 16); sourceRate = buffer.getInt(start + 4) }
+                if (name == "data") pcm = ShortArray(size / 2) { buffer.getShort(start + it * 2) }
+                offset = start + size + (size % 2)
+            }
+            check(sourceRate > 0 && pcm.isNotEmpty())
+            val samples = FloatArray((pcm.size.toLong() * rate / sourceRate).toInt()) { i ->
+                val pos = i.toDouble() * sourceRate / rate; val index = pos.toInt().coerceAtMost(pcm.lastIndex)
+                val next = (index + 1).coerceAtMost(pcm.lastIndex); val mix = pos - index
+                ((pcm[index] * (1 - mix) + pcm[next] * mix) / 32768.0).toFloat()
+            }
+            try {
+                val result = JSONObject(InferenceRepository.transcribe(samples, rate))
+                check(result.getString("transcript").contains("mango", ignoreCase = true)) { "Unexpected synthetic speech transcript: " + result.getString("transcript") }
+                evidence.put("syntheticASR", result).put("syntheticSource", "espeak-ng English: The test word is mango. No user audio.")
+                check(runCatching { InferenceRepository.transcribe(FloatArray(rate), rate) }.isFailure)
+            } finally { samples.fill(0f); pcm.fill(0); InferenceRepository.unloadVoice() }
+        }
+        step("microphone_permission_denial_preserves_typed_fallback") {
+            check(targetContext.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
+            val mic = MicrophoneCapture(targetContext)
+            check(runCatching { mic.capture(16000) }.isFailure && !mic.active)
+            launch(); waitForText("Ready", 180000)
+            val vm = ViewModelProvider(activity as MainActivity)[ChatViewModel::class.java]
+            runOnMainSync { vm.startVoice() }
+            waitForText("Microphone permission denied")
+            check(vm.state.value.loaded && !vm.state.value.busy)
+            check(completedUiTurn("Reply with only the word LOCAL.").content.contains("LOCAL"))
+        }
+        step("foreground_voice_recording_stops_when_activity_backgrounds") {
+            uiAutomation.grantRuntimePermission(targetContext.packageName, android.Manifest.permission.RECORD_AUDIO)
+            val vm = ViewModelProvider(activity as MainActivity)[ChatViewModel::class.java]
+            runOnMainSync { vm.startVoice() }
+            withTimeout(180000) { while (!vm.state.value.recording) { check(vm.state.value.busy) { vm.state.value.status }; delay(100) } }
+            runOnMainSync { activity!!.moveTaskToBack(true) }
+            withTimeout(180000) { while (vm.state.value.busy) delay(100) }
+            check(!vm.state.value.recording && !vm.state.value.voiceBusy && vm.state.value.loaded)
+            evidence.put("virtualMicLifecycle", "Actual AVD AudioRecord started, Activity backgrounded, capture stopped, text model restored; no physical Xiaomi microphone claim")
+            closeActivity()
+        }
+        step("Android_TTS_offline_voice_or_explicit_text_fallback") {
+            val speaker = withContext(Dispatchers.Main) { OfflineSpeaker(targetContext) {} }
+            try {
+                val outcome = withContext(Dispatchers.Main) { speaker.speak("Local Agents voice test.") }
+                check(outcome.contains("offline", true) || outcome.contains("TTS", true))
+                evidence.put("TTSAvailability", outcome).put("audibleSpeechVerified", false)
+            } finally { withContext(Dispatchers.Main) { speaker.close() } }
+        }
+        step("update_APK_same_signer_and_newer_version_metadata_verified") {
+            val apk = File(targetContext.filesDir, "fixtures/update.apk")
+            val hash = apk.inputStream().use { java.security.MessageDigest.getInstance("SHA-256").let { d ->
+                val b = ByteArray(65536); while (true) { val n = it.read(b); if (n < 0) break; d.update(b, 0, n) }; UpdateManager.hex(d.digest()) } }
+            val update = AppUpdate(6, "0.4.1-test", "", hash, apk.length(), UpdateManager.currentSigner(targetContext), "Synthetic update validation")
+            UpdateManager.verifyArchive(targetContext, apk, update)
+            check(runCatching { UpdateManager.verifyArchive(targetContext, apk, update.copy(code = 7)) }.isFailure)
+            check(runCatching { UpdateManager.verifyArchive(targetContext, apk, update.copy(signer = "0".repeat(64))) }.isFailure)
+            evidence.put("updateAPK_SHA256", hash).put("updateSigner", update.signer)
         }
     }
 

@@ -6,10 +6,10 @@ mkdir -p validation-evidence
 collect_evidence() {
     adb logcat -d > validation-evidence/logcat.txt 2>&1 || true
     adb shell run-as dev.lfm.mobile ls files/validation > validation-evidence/device-files.txt 2>&1 || true
-    for report in core.json restart.json core-ui.json restart-ui.json; do
+    for report in core.json restart.json voice.json core-ui.json restart-ui.json voice-ui.json; do
         adb exec-out run-as dev.lfm.mobile cat "files/validation/$report" > "validation-evidence/$report" 2>/dev/null || true
     done
-    for shot in onboarding saf-import real-chat cancel-recovery landscape-chat portrait-after-rotation history-after-process-restart cleared-chat expanded-tool-evidence collapsed-tool-evidence generation-controls saved-memory core-final restart-final; do
+    for shot in onboarding saf-import real-chat cancel-recovery landscape-chat portrait-after-rotation history-after-process-restart cleared-chat expanded-tool-evidence collapsed-tool-evidence generation-controls saved-memory core-final restart-final voice-final; do
         adb exec-out run-as dev.lfm.mobile cat "files/validation/$shot.png" > "validation-evidence/$shot.png" 2>/dev/null || true
     done
     find validation-evidence -type f -empty -delete
@@ -56,3 +56,15 @@ for phase in core restart; do
     adb exec-out run-as dev.lfm.mobile cat "files/validation/$phase.json" > "validation-evidence/$phase.json"
     python3 scripts/verify-emulator-report.py "validation-evidence/$phase.json"
 done
+
+# Core import checks are finished. Free duplicate text fixtures before importing
+# the real Omni pair, which is copied/checksummed by the production store.
+adb shell run-as dev.lfm.mobile rm -f files/fixtures/model.gguf
+adb shell rm -f /sdcard/Download/LFM3-1.7B-Q5_K_M.gguf
+for fixture in omni.gguf omni-projector.gguf voice.wav update.apk; do
+    adb shell run-as dev.lfm.mobile sh -c "\"cat > files/fixtures/$fixture\"" < "$RUNNER_TEMP/$fixture"
+done
+adb shell am force-stop dev.lfm.mobile
+timeout 1800 adb shell am instrument -w -e phase voice dev.lfm.mobile.test/dev.lfm.mobile.validation.LocalValidationRunner | tee validation-evidence/instrumentation-voice.txt
+adb exec-out run-as dev.lfm.mobile cat files/validation/voice.json > validation-evidence/voice.json
+python3 scripts/verify-emulator-report.py validation-evidence/voice.json

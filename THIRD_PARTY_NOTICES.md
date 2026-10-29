@@ -9,3 +9,5 @@
 License review for this development milestone found no copyleft requirement in the chosen app/runtime dependency licenses that would prevent this Apache-2.0 project. This is not a completed public-store/commercial distribution clearance: transitive resolved dependency notices, optional future audio components, commercial model eligibility and store policies must be reviewed again for the exact release.
 
 Full license copies are under app/src/main/assets/licenses and in the pinned upstream source. No model weights or user logs are redistributed.
+
+Omni voice pins: LiquidAI/LFM3-Omni-2B-GGUF revision 2918dd47cfceb4f260cd1734cd1aac1b22bbe4b6, model Q4_K_M plus paired Q8_0 projector. Its pinned LICENSE was fetched and byte-compared (ignoring outer whitespace) with the bundled LFM Open License v1.0: identical, 10,574 bytes. llama.cpp mtmd uses the same pinned source and retained third-party licenses. CI synthetic speech uses runner-installed espeak-ng; it is not embedded in the APK.
