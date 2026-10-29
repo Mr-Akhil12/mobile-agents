@@ -1,4 +1,4 @@
-# LFM Mobile Agent
+# LFM Based Mobile Agent
 
 Native Android assistant using Kotlin, Jetpack Compose, C++, and llama.cpp. The authoritative scope is [Master Build Plan v1.0](docs/MASTER_PLAN.md). Phase 1 target: **30 October 2026, 16:00 SAST**.
 
