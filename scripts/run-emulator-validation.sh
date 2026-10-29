@@ -6,10 +6,10 @@ mkdir -p validation-evidence
 collect_evidence() {
     adb logcat -d > validation-evidence/logcat.txt 2>&1 || true
     adb shell run-as dev.lfm.mobile ls files/validation > validation-evidence/device-files.txt 2>&1 || true
-    for report in core.json restart.json voice.json core-ui.json restart-ui.json voice-ui.json; do
+    for report in core.json restart.json voice.json upgrade.json core-ui.json restart-ui.json voice-ui.json upgrade-ui.json; do
         adb exec-out run-as dev.lfm.mobile cat "files/validation/$report" > "validation-evidence/$report" 2>/dev/null || true
     done
-    for shot in onboarding saf-import real-chat cancel-recovery landscape-chat portrait-after-rotation history-after-process-restart cleared-chat expanded-tool-evidence collapsed-tool-evidence generation-controls saved-memory core-final restart-final voice-final; do
+    for shot in onboarding saf-import real-chat cancel-recovery landscape-chat portrait-after-rotation history-after-process-restart cleared-chat expanded-tool-evidence collapsed-tool-evidence generation-controls saved-memory core-final restart-final voice-final upgrade-final after-package-upgrade; do
         adb exec-out run-as dev.lfm.mobile cat "files/validation/$shot.png" > "validation-evidence/$shot.png" 2>/dev/null || true
     done
     find validation-evidence -type f -empty -delete
@@ -68,3 +68,10 @@ adb shell am force-stop dev.lfm.mobile
 timeout 1800 adb shell am instrument -w -e phase voice dev.lfm.mobile.test/dev.lfm.mobile.validation.LocalValidationRunner | tee validation-evidence/instrumentation-voice.txt
 adb exec-out run-as dev.lfm.mobile cat files/validation/voice.json > validation-evidence/voice.json
 python3 scripts/verify-emulator-report.py validation-evidence/voice.json
+
+# Real Android PackageManager upgrade, preserving the same app data and signing key.
+adb shell am force-stop dev.lfm.mobile
+adb install -r "$RUNNER_TEMP/update.apk"
+timeout 600 adb shell am instrument -w -e phase upgrade dev.lfm.mobile.test/dev.lfm.mobile.validation.LocalValidationRunner | tee validation-evidence/instrumentation-upgrade.txt
+adb exec-out run-as dev.lfm.mobile cat files/validation/upgrade.json > validation-evidence/upgrade.json
+python3 scripts/verify-emulator-report.py validation-evidence/upgrade.json

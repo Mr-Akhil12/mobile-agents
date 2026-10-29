@@ -14,7 +14,7 @@ class UpdatePolicyTest {
     }
     @Test fun rejectsForeignHostsRepositoriesAndInsecureTransport() {
         for (bad in listOf(url.replace("https:", "http:"), url.replace("github.com", "github.com.evil.test"),
-            url.replace("Mr-Akhil12", "attacker"), url.replace("https://", "https://user@"),
+            url.replace("Mr-Akhil12", "attacker"), url.replace("github.com", "github.com:8443"), url.replace("https://", "https://user@"),
             "https://github.com/Mr-Akhil12/mobile-agents/releases/download/../../other.apk")) {
             assertTrue(runCatching { UpdatePolicy.parse(manifest(), bad, "") }.isFailure)
         }

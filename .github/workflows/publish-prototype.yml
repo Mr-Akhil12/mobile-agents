@@ -69,6 +69,7 @@ jobs:
           VERSION_NAME: ${{ inputs.version_name }}
         run: |
           set -euo pipefail
+          python scripts/verify-publication-order.py
           TAG="prototype-v${VERSION_NAME}-${VERSION_CODE}"
           if gh release view "$TAG" >/dev/null 2>&1; then echo 'Release already exists; use a new version.'; exit 1; fi
           cat > "$RUNNER_TEMP/prototype-notes.md" <<'EOF'

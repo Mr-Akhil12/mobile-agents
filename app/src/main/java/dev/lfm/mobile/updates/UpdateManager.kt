@@ -39,8 +39,8 @@ class UpdateManager(private val context: Context, private val scope: CoroutineSc
     fun checkIfDue() { if (autoCheck && System.currentTimeMillis() - prefs.getLong("checked", 0) > 24L * 60 * 60 * 1000) check() }
     fun check() {
         if (state.value.busy) return
+        mutable.update { it.copy(busy = true, message = "Checking GitHub for signed updates") }
         job = scope.launch(Dispatchers.IO) {
-            mutable.update { it.copy(busy = true, message = "Checking GitHub for signed updates") }
             prefs.edit().putLong("checked", System.currentTimeMillis()).apply()
             try {
                 val releases = JSONArray(getBytes("https://api.github.com/repos/Mr-Akhil12/mobile-agents/releases?per_page=5", 1024 * 1024).decodeToString())
@@ -71,9 +71,9 @@ class UpdateManager(private val context: Context, private val scope: CoroutineSc
     fun download() {
         val update = state.value.available ?: return
         if (state.value.busy) return
+        mutable.update { it.copy(busy = true, downloaded = false, progress = 0, message = "Downloading signed update") }
         job = scope.launch(Dispatchers.IO) {
             val partial = File(folder, "candidate.apk.partial")
-            mutable.update { it.copy(busy = true, downloaded = false, progress = 0, message = "Downloading signed update") }
             try {
                 val digest = MessageDigest.getInstance("SHA-256"); var count = 0L
                 open(update.url).inputStream.use { input -> partial.outputStream().use { output ->
@@ -95,7 +95,7 @@ class UpdateManager(private val context: Context, private val scope: CoroutineSc
             finally { partial.delete(); connection.getAndSet(null)?.disconnect(); mutable.update { it.copy(busy = false) } }
         }
     }
-    fun cancel() { job?.cancel(); connection.getAndSet(null)?.disconnect(); mutable.update { it.copy(busy = false, message = "Update operation cancelled") } }
+    fun cancel() { job?.cancel(); connection.getAndSet(null)?.disconnect(); mutable.update { it.copy(message = "Cancelling update operation") } }
     suspend fun installerIntent(): Intent = withContext(Dispatchers.IO) {
         val update = checkNotNull(state.value.available)
         check(state.value.downloaded && candidate.isFile) { "Download and verify the update first" }
@@ -116,7 +116,7 @@ class UpdateManager(private val context: Context, private val scope: CoroutineSc
         var next = url
         for (redirect in 0..5) {
             val uri = URI(next)
-            check(uri.scheme == "https" && uri.userInfo == null && uri.host in setOf("api.github.com", "github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com")) { "Untrusted update host" }
+            check(uri.scheme == "https" && uri.port in setOf(-1, 443) && uri.userInfo == null && uri.host in setOf("api.github.com", "github.com", "release-assets.githubusercontent.com", "objects.githubusercontent.com")) { "Untrusted update host" }
             val c = URL(next).openConnection() as HttpsURLConnection; connection.getAndSet(c)?.disconnect()
             c.instanceFollowRedirects = false; c.connectTimeout = 15000; c.readTimeout = 30000
             c.setRequestProperty("User-Agent", "Local-Agents-Android"); c.setRequestProperty("Accept", "application/vnd.github+json")
@@ -147,7 +147,7 @@ object UpdatePolicy {
     const val MAX_BYTES = 256L * 1024 * 1024
     fun parse(json: JSONObject, url: String, notes: String): AppUpdate {
         val uri = URI(url).normalize()
-        require(uri.scheme == "https" && uri.host == "github.com" && uri.userInfo == null && uri.path.startsWith("/Mr-Akhil12/mobile-agents/releases/download/")) { "Untrusted release URL" }
+        require(uri.scheme == "https" && uri.host == "github.com" && uri.port in setOf(-1, 443) && uri.userInfo == null && uri.path.startsWith("/Mr-Akhil12/mobile-agents/releases/download/")) { "Untrusted release URL" }
         val hash = json.getString("sha256").lowercase(); val signer = json.getString("signerSha256").lowercase()
         require(Regex("[a-f0-9]{64}").matches(hash) && Regex("[a-f0-9]{64}").matches(signer)) { "Invalid release digests" }
         val bytes = json.getLong("bytes"); require(bytes in 1..MAX_BYTES)

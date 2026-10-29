@@ -79,6 +79,7 @@ class LocalValidationRunner : Instrumentation() {
                     "core" -> coreTests()
                     "restart" -> restartTests()
                     "voice" -> voiceTests()
+                    "upgrade" -> upgradeTests()
                     else -> error("Unknown validation phase: $phase")
                 }
             }
@@ -397,8 +398,9 @@ class LocalValidationRunner : Instrumentation() {
             }
             check(visible) { "Tool evidence dropdown not reachable" }
             clickText("Show evidence ▾")
-            waitForText("success")
+            scrollToVisibleText("success", forward = true)
             screenshot("expanded-tool-evidence")
+            scrollToVisibleText("Hide evidence ▴", forward = false)
             clickText("Hide evidence ▴")
             screenshot("collapsed-tool-evidence")
         }
@@ -495,6 +497,28 @@ class LocalValidationRunner : Instrumentation() {
             check(runCatching { UpdateManager.verifyArchive(targetContext, apk, update.copy(code = 7)) }.isFailure)
             check(runCatching { UpdateManager.verifyArchive(targetContext, apk, update.copy(signer = "0".repeat(64))) }.isFailure)
             evidence.put("updateAPK_SHA256", hash).put("updateSigner", update.signer)
+            val db = Room.databaseBuilder(targetContext, ChatDatabase::class.java, "lfm-chats.db").build()
+            try { db.messages().saveMemory(MemoryFact(content = "Same-key upgrade retention proof")) } finally { db.close() }
+            targetContext.getSharedPreferences("validation-upgrade", 0).edit().putString("signer", update.signer).commit()
+        }
+    }
+
+    private suspend fun upgradeTests() {
+        step("same_key_Android_package_update_preserves_Room_and_model") {
+            check(targetContext.packageManager.getPackageInfo(targetContext.packageName, 0).longVersionCode == 6L)
+            check(UpdateManager.currentSigner(targetContext) == targetContext.getSharedPreferences("validation-upgrade", 0).getString("signer", null))
+            val db = Room.databaseBuilder(targetContext, ChatDatabase::class.java, "lfm-chats.db").build()
+            try {
+                check(db.messages().allMemories().any { it.content == "Same-key upgrade retention proof" })
+                check(db.messages().all().any { it.role == "assistant" && it.content.contains("LOCAL") })
+            } finally { db.close() }
+            val model = ModelStore(targetContext).model
+            check(model.isFile && model.length() == 1258663200L)
+            launch(); waitForText("Ready", 180000)
+            check(completedUiTurn("Reply with only the word LOCAL.").content.contains("LOCAL"))
+            evidence.put("upgradeMethod", "adb install -r of same-signer newer APK; no uninstall or app clear. Does not prove in-app Android installer UI or Xiaomi acceptance.")
+            screenshot("after-package-upgrade")
+            closeActivity()
         }
     }
 
@@ -584,6 +608,16 @@ class LocalValidationRunner : Instrumentation() {
             SystemClock.sleep(100)
         }
         error("Timed out waiting for enabled clickable $text")
+    }
+    private fun scrollToVisibleText(text: String, forward: Boolean) {
+        repeat(15) {
+            if (find(uiRoot()) { it.isVisibleToUser && it.text?.toString()?.contains(text) == true } != null) return
+            val list = find(uiRoot()) { it.isScrollable && it.isVisibleToUser }
+            check(list != null) { "No scrollable content while seeking $text" }
+            list.performAction(if (forward) AccessibilityNodeInfo.ACTION_SCROLL_FORWARD else AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)
+            SystemClock.sleep(250)
+        }
+        error("Could not scroll to $text")
     }
     private fun sendFromUi(text: String) {
         val field = waitNode { node -> node.isEditable && node.isEnabled && node.isVisibleToUser &&

@@ -85,7 +85,7 @@ jobs:
           target: default
           cores: 4
           ram-size: 6144M
-          disk-size: 12G
+          disk-size: 8G
           heap-size: 512M
           disable-linux-hw-accel: false
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none

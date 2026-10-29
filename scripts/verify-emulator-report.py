@@ -24,6 +24,7 @@ expected = {
         "Compose_controls_memory_and_collapsible_real_tool_evidence",
         "Compose_rotation_preserves_history_and_native_session",
     ],
+    "upgrade": ["same_key_Android_package_update_preserves_Room_and_model"],
     "voice": ["voice_pair_rejects_corrupt_import_and_verifies_real_files", "real_Omni_JNI_transcribes_synthetic_PCM_offline",
               "microphone_permission_denial_preserves_typed_fallback", "foreground_voice_recording_stops_when_activity_backgrounds",
               "Android_TTS_offline_voice_or_explicit_text_fallback", "update_APK_same_signer_and_newer_version_metadata_verified"],
