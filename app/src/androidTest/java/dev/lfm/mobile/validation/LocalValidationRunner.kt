@@ -381,8 +381,9 @@ class LocalValidationRunner : Instrumentation() {
             }
             check(visible) { "Tool evidence dropdown not reachable" }
             clickText("Show evidence ▾")
-            waitForText("success")
+            scrollToVisibleText("success", forward = true)
             screenshot("expanded-tool-evidence")
+            scrollToVisibleText("Hide evidence ▴", forward = false)
             clickText("Hide evidence ▴")
             screenshot("collapsed-tool-evidence")
         }
@@ -485,6 +486,16 @@ class LocalValidationRunner : Instrumentation() {
             SystemClock.sleep(100)
         }
         error("Timed out waiting for enabled clickable $text")
+    }
+    private fun scrollToVisibleText(text: String, forward: Boolean) {
+        repeat(15) {
+            if (find(uiRoot()) { it.isVisibleToUser && it.text?.toString()?.contains(text) == true } != null) return
+            val list = find(uiRoot()) { it.isScrollable && it.isVisibleToUser }
+            check(list != null) { "No scrollable content while seeking $text" }
+            list.performAction(if (forward) AccessibilityNodeInfo.ACTION_SCROLL_FORWARD else AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)
+            SystemClock.sleep(250)
+        }
+        error("Could not scroll to $text")
     }
     private fun sendFromUi(text: String) {
         val field = waitNode { node -> node.isEditable && node.isEnabled && node.isVisibleToUser &&
