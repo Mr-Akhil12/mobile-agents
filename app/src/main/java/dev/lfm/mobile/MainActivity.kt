@@ -94,7 +94,7 @@ private fun ChatScreen(vm: ChatViewModel) {
     val update by vm.updates.state.collectAsStateWithLifecycle()
     var automaticUpdates by remember { mutableStateOf(vm.updates.autoCheck) }
     var installError by remember { mutableStateOf("") }
-    LaunchedEffect(update.available?.code) { update.available?.let { if (vm.updates.shouldPrompt(it)) showUpdates = true } }
+    LaunchedEffect(update.available?.code, state.busy, state.speaking) { update.available?.let { if (!state.busy && !state.speaking && vm.updates.shouldPrompt(it)) showUpdates = true } }
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var elapsed by remember { mutableLongStateOf(0) }
@@ -229,11 +229,14 @@ private fun ChatScreen(vm: ChatViewModel) {
         dismissButton = { TextButton(onClick = { vm.updates.dismiss(); showUpdates = false }) { Text("Close") } })
     if (showControls) AgentControls(vm, onDismiss = { showControls = false })
     if (showMemory) MemoryDialog(vm, onDismiss = { showMemory = false })
-    if (showModels) AlertDialog(onDismissRequest = { showModels = false }, title = { Text("Local text model") }, text = {
+    if (showModels) AlertDialog(onDismissRequest = { showModels = false }, title = { Text("On-device models") }, text = {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("LFM3-1.7B · Q5_K_M\n1,258,663,200 bytes (1.26 GB)\nReserve at least 1.5 GB app storage in addition to the downloaded file.")
             Text("Use the official file. Import copies it into private storage and verifies its pinned SHA-256. No model is bundled with the APK.")
             Text("Liquid AI LFM Open License v1.0 applies, including its commercial revenue threshold. Review the license before use.")
+            TextButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(ModelStore.SOURCE))) }) { Text("Official model download") }
+            TextButton(onClick = { showLicense = true }) { Text("Model license (offline)") }
+            TextButton(enabled = !state.busy, onClick = { showModels = false; vm.removeModel() }) { Text("Unload and delete model") }
             HorizontalDivider()
             Text("Omni offline voice · model + paired projector", style = MaterialTheme.typography.titleSmall)
             Text(if (vm.voiceModels.ready) "Both voice files verified. Tap the microphone, stop when finished, then review the transcript before Send." else "Import both files (1,099,630,080 + 540,892,768 bytes). Existing matching Termux downloads are supported. Voice uses one model at a time to limit RAM.")
@@ -243,9 +246,6 @@ private fun ChatScreen(vm: ChatViewModel) {
             }
             Text("Spoken replies use an installed offline Android TTS voice, not cloud speech. Microphone capture stops when the app leaves the foreground.")
             TextButton(onClick = { context.startActivity(Intent("com.android.settings.TTS_SETTINGS")) }) { Text("Android voice settings") }
-            TextButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(ModelStore.SOURCE))) }) { Text("Official model download") }
-            TextButton(onClick = { showLicense = true }) { Text("Model license (offline)") }
-            TextButton(enabled = !state.busy, onClick = { showModels = false; vm.removeModel() }) { Text("Unload and delete model") }
         }
     }, confirmButton = { TextButton(enabled = !state.busy, onClick = { showModels = false; picker.launch(arrayOf("*/*")) }) { Text("Import GGUF") } }, dismissButton = {
         TextButton(onClick = { showModels = false }) { Text("Close") }

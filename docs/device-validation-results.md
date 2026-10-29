@@ -44,3 +44,11 @@ Reusing an existing GGUF is supported: the native importer still checks exact pi
 - Voice gate: HELD until text/device review:
 
 Do not put private conversation data in public issues/PRs. CI results belong to the build record, not the physical-test rows.
+
+## Reviewed follow-up: Local Agents 0.2.0
+
+The user reports the prior update failed, then uninstalled/reinstalled the latest delivered APK and is happy with its functionality. Delivered candidate: Local_Agents_0.2.0.apk, 34,363,594 bytes, SHA-256 c4b9d9c335ba512a5587786c8abec74481e476391441e5409640afa02645e163; ARM64 run 40813694290 / artifact 12870998947; actual build checkout 1a84cd36f738e84b2de9ca4d4f111bddece6821b, tree 14e341c19747cdac5773774d34c78e18ab407042. The installed hash was not independently measured on the handset.
+
+User-supplied screenshot: input “what time is it on my phone?”, collapsed request/evidence controls, answer 6:29 AM in Africa/Johannesburg, displayed Worked for 29.5 s, ingestion 18.7 tok/s, generation 11.7 tok/s, 501 input, 31 generated, 2 model calls. This is actual user-device UI evidence, not an emulator measurement. The raw expanded tool payload was not supplied; the earlier native tool implementation is separately validated in CI. The screenshot has connectivity indicators, so it proves no airplane-mode claim. Do not publish the private screenshot or notifications.
+
+The successful user reports and explicit request to progress Omni were reviewed: **engineering gate permits voice implementation** while preserving the accepted text candidate. **Physical release acceptance remains partial**, with offline, restart/cancellation/lifecycle and individual QA rows pending explicit observations. **Voice acceptance remains pending**, independently from text. All earlier pending rows above describe the initial report; use this follow-up and the updated QA checklist for current status. No verified release tag is authorized by this review.

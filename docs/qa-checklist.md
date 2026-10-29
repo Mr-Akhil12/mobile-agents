@@ -1,23 +1,20 @@
 # Physical device acceptance checklist
 
-Status: **all physical-device tests pending**. Record APK SHA-256, source SHA, device exact model, Android API/version, free space and tester date/time. No physical device is connected to the build environment.
+Xiaomi 15T: the user reports both the original APK and latest delivered 0.2.0 working, including import of an existing Termux-downloaded GGUF. The supplied screenshot demonstrates a completed clock-tool answer and real displayed latency. This is user-device evidence; individual unreported rows remain pending. No physical phone is connected to CI. Huawei testing remains pending.
 
-- [ ] T01 Install arm64 debug APK; launch without crash.
-- [ ] T02 Import official text GGUF through Android file picker; size and checksum verified.
-- [ ] T03 Airplane mode with Wi-Fi off: local model answers a typed question.
-- [ ] T04 Ask current time: native model requests get_local_time; evidence matches Android clock/timezone; model follows up using result.
-- [ ] T05 Unknown/dangerous requested tool does not execute; no shell path is exposed.
-- [ ] T06 Cancel while thinking/generating; app remains usable for next turn.
-- [ ] T07 Force-close/reopen: history persists and model reloads; Clear chat removes history.
-- [ ] T08 Delete/reimport model; recover from model load errors.
-- [ ] T09 No microphone permission requested in text milestone.
-- [ ] T10 Voice explicitly unavailable; no full voice acceptance yet.
-- [ ] T11 Battery request returns OS-observed percentage/charging state or explicit error.
-- [ ] T12 Wrong/truncated file, low storage and cancelled import leave no accepted partial model.
-- [ ] T13 Five consecutive contextual turns; no raw reasoning or runaway tool loop.
-- [ ] T14 Install/use without Termux installed or running; no external server.
-- [ ] T15 Record exact source commit, APK hash and result of every test.
+- [x] User-reported install, launch, model import/load and local text functionality.
+- [x] Screenshot shows successful Android time-tool answer, Africa/Johannesburg, 29.5 s / 501 input / 31 generated / 2 model calls.
+- [ ] Confirm exact installed APK hash and Android API/HyperOS version.
+- [ ] Airplane mode, Wi-Fi/data off: repeat text and real clock tool with external servers stopped.
+- [ ] Battery request: compare OS-observed percentage/charging state.
+- [ ] Five contextual turns, no raw reasoning/protocol leakage.
+- [ ] Cancel a long turn, then send a short one successfully.
+- [ ] Force-stop/reopen: history/model retained and new inference works; Clear chat persists.
+- [ ] Corrupt/cancelled import, low storage and delete/reimport recovery.
+- [ ] Rotation, background, lock/unlock, thermals/RAM/battery observation.
+- [ ] New UI/prefix-cache performance on Xiaomi (emulator timings do not establish phone speed).
+- [ ] Voice candidate: deny mic permission and verify typed fallback; import pinned Omni pair; capture → review transcript → Send → tool/text → installed offline TTS, all offline.
+- [ ] Voice stops on Cancel/background/lock; repeat turns without memory pressure or stuck state. Audio focus/call/Bluetooth routing require separate physical checks and are not established by the initial voice path.
+- [ ] Permanent-key candidate: explicit download/install flow, then a newer same-key update retains chats/memory/imported models. Old ephemeral-key installations need a one-time migration/reinstall decision first.
 
-Also measure load time, first-token latency, generation rate, RAM and thermals. Test rotation/background/lock/unlock, cancel then immediate new turn, process death during import and out-of-context input. No performance target has yet been measured on Xiaomi or Huawei.
-
-Do not publish `v0.1.0-p1` as device-verified until required native text, time, history and offline tests pass on Xiaomi. A successful CI build is not the release GO gate.
+Text/device engineering review accepted the user's successful native smoke reports and explicit approval to advance Omni. This does not mark the full physical offline release checklist complete. Preserve the accepted 0.2.0 text APK and Friday 30 October 2026, 16:00 SAST deadline. No device-verified release tag until required physical observations are confirmed.
