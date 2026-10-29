@@ -27,6 +27,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -49,6 +50,7 @@ class MainActivity : ComponentActivity() {
 private fun ChatScreen(vm: ChatViewModel) {
     val state by vm.state.collectAsStateWithLifecycle()
     val messages by vm.messages.collectAsStateWithLifecycle()
+    val compact = LocalConfiguration.current.screenHeightDp < 480
     var input by rememberSaveable { mutableStateOf("") }
     var showModels by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
@@ -72,22 +74,31 @@ private fun ChatScreen(vm: ChatViewModel) {
     Scaffold { padding ->
         Column(Modifier.fillMaxSize().padding(padding).imePadding().padding(horizontal = 16.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                Icon(painterResource(R.drawable.ic_agent_foreground), contentDescription = null, modifier = Modifier.padding(end = 8.dp).size(32.dp))
+                Icon(painterResource(R.drawable.ic_agent_foreground), contentDescription = null, tint = androidx.compose.ui.graphics.Color.Unspecified, modifier = Modifier.padding(end = 8.dp).size(32.dp))
                 Text(stringResource(R.string.app_name), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(vertical = 16.dp))
+                if (compact) {
+                    TextButton(onClick = vm::newConversation, enabled = !state.busy) { Text("New chat") }
+                    TextButton(onClick = { showHistory = true }, enabled = !state.busy) { Text("Chats") }
+                    TextButton(onClick = { showMemory = true }, enabled = !state.busy) { Text("Memory") }
+                    TextButton(onClick = { showControls = true }, enabled = !state.busy) { Text("Controls") }
+                }
                 TextButton(onClick = { showModels = true }) { Text("Models") }
             }
-            Row(Modifier.fillMaxWidth()) {
+            if (!compact) Row(Modifier.fillMaxWidth()) {
                 TextButton(onClick = vm::newConversation, enabled = !state.busy, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp)) { Text("New chat") }
                 TextButton(onClick = { showHistory = true }, enabled = !state.busy, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp)) { Text("Chats") }
                 TextButton(onClick = { showMemory = true }, enabled = !state.busy, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp)) { Text("Memory") }
                 TextButton(onClick = { showControls = true }, enabled = !state.busy, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp)) { Text("Controls") }
             }
-            Text("Private · On-device", style = MaterialTheme.typography.labelMedium)
-            if (state.startedAtMs > 0) Text(
+            if (!compact) Text("Private · On-device", style = MaterialTheme.typography.labelMedium)
+            if (!compact && state.startedAtMs > 0) Text(
                 (if (state.working) "Working for " else "Worked for ") + String.format(java.util.Locale.US, "%.1f s", elapsed / 1000.0),
                 style = MaterialTheme.typography.labelMedium)
-            if (state.working) state.metrics?.let { MetricsLabel(it) }
-            Text(state.status, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical = 8.dp))
+            if (!compact && state.working) state.metrics?.let { MetricsLabel(it) }
+            Text(state.status + if (compact && state.startedAtMs > 0) " · " +
+                (if (state.working) "Working for " else "Worked for ") + String.format(java.util.Locale.US, "%.1f s", elapsed / 1000.0) else "",
+                color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical = if (compact) 2.dp else 8.dp),
+                maxLines = if (compact) 1 else 3, overflow = TextOverflow.Ellipsis)
             if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             LazyColumn(state = scroll, modifier = Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(vertical = 12.dp)) {
                 if (messages.isEmpty()) item {
@@ -114,7 +125,7 @@ private fun ChatScreen(vm: ChatViewModel) {
                 item { if (state.streaming.isNotEmpty()) Text(state.streaming, modifier = Modifier.padding(14.dp)) }
             }
             OutlinedTextField(value = input, onValueChange = { if (it.length <= 8000) input = it }, modifier = Modifier.fillMaxWidth(), enabled = !state.busy,
-                label = { Text("Message Local Agents") }, maxLines = 5)
+                label = { Text("Message Local Agents") }, maxLines = if (compact) 2 else 5)
             Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                 TextButton(onClick = { confirmClear = true }, enabled = !state.busy) { Text("Clear chat") }
                 if (state.busy) OutlinedButton(onClick = vm::cancel) { Text("Cancel") }

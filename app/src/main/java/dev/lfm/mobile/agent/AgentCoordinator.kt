@@ -88,7 +88,7 @@ class AgentCoordinator(private val dao: MessageDao, private val tools: ToolRegis
                 AnswerPolicy.validate(answer)
                 // Reasoning is only retained transiently during the active tool cycle.
                 response.remove("reasoning_content")
-                dao.insert(ChatMessage(turnId = turn, role = "assistant", content = answer, contextJson = response.toString(), conversationId = conversationId, metricsJson = measured.copy(elapsedMs = SystemClock.elapsedRealtime() - started).toJson()))
+                dao.insert(ChatMessage(turnId = turn, role = "assistant", content = answer, contextJson = response.toString(), conversationId = conversationId, metricsJson = JSONObject(measured.copy(elapsedMs = SystemClock.elapsedRealtime() - started).toJson()).put("settings", JSONObject(settings.toJson())).toString()))
                 stream("")
                 status("Finished")
                 return

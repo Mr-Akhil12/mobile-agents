@@ -334,6 +334,7 @@ class LocalValidationRunner : Instrumentation() {
             clickText("Controls")
             waitForText("Generation controls")
             waitForText("Temperature")
+            screenshot("generation-controls")
             clickText("Reset defaults")
             clickText("Done")
             clickText("Memory")
@@ -343,6 +344,7 @@ class LocalValidationRunner : Instrumentation() {
             waitNode { it.isEditable && it.text?.toString() == "UI memory proof" }
             clickText("Save memory")
             waitForText("UI memory proof")
+            screenshot("saved-memory")
             clickText("Delete")
             clickText("Done")
             val answer = completedUiTurn("What time is it on my phone? Use get_local_time and include the exact ISO datetime from the tool result.")
