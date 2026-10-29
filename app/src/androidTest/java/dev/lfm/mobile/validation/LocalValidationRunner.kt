@@ -349,11 +349,20 @@ class LocalValidationRunner : Instrumentation() {
             clickText("Done")
             val answer = completedUiTurn("What time is it on my phone? Use get_local_time and include the exact ISO datetime from the tool result.")
             check(answer.metricsJson != null)
+            val proofDb = Room.databaseBuilder(targetContext, ChatDatabase::class.java, "lfm-chats.db").build()
+            try {
+                val proof = proofDb.messages().all().firstOrNull { it.turnId == answer.turnId && it.role == "tool" && it.content.startsWith("get_local_time\n") }
+                    ?: error("UI time turn produced no actual get_local_time evidence")
+                val observed = JSONObject(proof.content.substringAfter('\n'))
+                check(observed.getBoolean("success"))
+                evidence.put("UITimeToolEvidence", observed).put("UITimeFollowup", answer.content)
+                    .put("UIMetrics", JSONObject(answer.metricsJson))
+            } finally { proofDb.close() }
             waitForText("Worked for ")
             var visible = false
             for (attempt in 0 until 10) {
-                if (find(uiAutomation.rootInActiveWindow) { it.text?.toString() == "Show evidence ▾" && it.isVisibleToUser } != null) { visible = true; break }
-                val list = find(uiAutomation.rootInActiveWindow) { it.isScrollable }
+                if (find(uiRoot()) { it.text?.toString() == "Show evidence ▾" && it.isVisibleToUser } != null) { visible = true; break }
+                val list = find(uiRoot()) { it.isScrollable }
                 list?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)
                 SystemClock.sleep(300)
             }
@@ -424,6 +433,13 @@ class LocalValidationRunner : Instrumentation() {
             waitForIdleSync()
         } finally { removeMonitor(monitor) }
     }
+    private fun uiRoot(): AccessibilityNodeInfo? {
+        // Compose can leave cached virtual nodes from the prior window/scroll state.
+        // This runner targets API 35; keep an API guard for older debug devices.
+        if (android.os.Build.VERSION.SDK_INT >= 34) uiAutomation.clearCache()
+        val root = uiAutomation.rootInActiveWindow ?: return null
+        return root.takeIf { it.refresh() }
+    }
     private fun find(node: AccessibilityNodeInfo?, predicate: (AccessibilityNodeInfo) -> Boolean): AccessibilityNodeInfo? {
         if (node == null) return null
         if (predicate(node)) return node
@@ -433,7 +449,7 @@ class LocalValidationRunner : Instrumentation() {
     private fun waitNode(timeout: Long = 30000, predicate: (AccessibilityNodeInfo) -> Boolean): AccessibilityNodeInfo {
         val end = SystemClock.elapsedRealtime() + timeout
         while (SystemClock.elapsedRealtime() < end) {
-            find(uiAutomation.rootInActiveWindow, predicate)?.let { return it }
+            find(uiRoot(), predicate)?.let { return it }
             SystemClock.sleep(200)
         }
         error("Timed out waiting for UI node; $phase")
@@ -443,7 +459,7 @@ class LocalValidationRunner : Instrumentation() {
     private fun clickText(text: String) {
         val end = SystemClock.elapsedRealtime() + 30000
         while (SystemClock.elapsedRealtime() < end) {
-            var node = find(uiAutomation.rootInActiveWindow) { it.text?.toString() == text }
+            var node = find(uiRoot()) { it.text?.toString() == text }
             while (node != null && !node.isClickable) node = node.parent
             if (node?.isEnabled == true && node.isVisibleToUser && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return
             SystemClock.sleep(100)
@@ -488,7 +504,7 @@ class LocalValidationRunner : Instrumentation() {
                 .put("enabled", node.isEnabled).put("clickable", node.isClickable)
                 .put("editable", node.isEditable).put("children", children)
         }
-        File(output, "$phase-ui.json").writeText(snapshot(uiAutomation.rootInActiveWindow, 0).toString(2))
+        File(output, "$phase-ui.json").writeText(snapshot(uiRoot(), 0).toString(2))
     }
     private fun screenshot(name: String) {
         val bitmap = uiAutomation.takeScreenshot() ?: error("Screenshot unavailable")
