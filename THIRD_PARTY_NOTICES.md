@@ -1,0 +1,11 @@
+# Third-party notices and distribution gate
+
+- llama.cpp and ggml (ggml-org), pinned submodule revision recorded in native-runtime.md: MIT. Original copyright/permission notices are retained in source and APK assets.
+- Kotlin and kotlinx.coroutines: Apache-2.0. AndroidX Compose, Activity, Lifecycle and Room: Apache-2.0. Apache license is included in APK assets.
+- Native bundled dependency licenses from llama.cpp/licenses are included unchanged in APK assets, including nlohmann JSON, cpp-httplib and other upstream third-party notices. The native build disables OpenSSL, OpenMP and KleidiAI; these optional components are not intentionally linked.
+- Gradle wrapper: Apache-2.0; the wrapper JAR and distribution checksum are pinned. Android build tools/NDK are build-time dependencies governed by their respective SDK licenses; SDK acceptance is required on the build machine.
+- LFM3-1.7B/LFM3-Omni-2B: Liquid AI, Inc., LFM Open License v1.0. Models are downloaded/imported separately and are not present in this repository or APK. Review full terms, attribution obligations and commercial threshold (annual revenue USD 10 million or more). No business eligibility has been assumed. The text model license is bundled for review; Omni is not distributed in this milestone.
+
+License review for this development milestone found no copyleft requirement in the chosen app/runtime dependency licenses that would prevent this Apache-2.0 project. This is not a completed public-store/commercial distribution clearance: transitive resolved dependency notices, optional future audio components, commercial model eligibility and store policies must be reviewed again for the exact release.
+
+Full license copies are under app/src/main/assets/licenses and in the pinned upstream source. No model weights or user logs are redistributed.
