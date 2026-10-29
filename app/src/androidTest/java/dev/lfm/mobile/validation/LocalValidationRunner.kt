@@ -37,6 +37,9 @@ import dev.lfm.mobile.updates.UpdateManager
 import dev.lfm.mobile.updates.AppUpdate
 import androidx.lifecycle.ViewModelProvider
 import dev.lfm.mobile.ui.ChatViewModel
+import kotlinx.coroutines.flow.first
+import dev.lfm.mobile.agent.ContextWindow
+import dev.lfm.mobile.data.HistoryExport
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.Dispatchers
@@ -311,6 +314,29 @@ class LocalValidationRunner : Instrumentation() {
                 evidence.put("savedMemoryReply", rows.last().content)
             }
         } finally { db.close() }
+        step("long_context_retains_history_and_oversized_prompt_recovers") {
+            val contextDb = Room.databaseBuilder(targetContext, ChatDatabase::class.java, "context-validation.db").build()
+            try {
+                val dao = contextDb.messages(); dao.createConversation(Conversation("long", "Long synthetic chat"))
+                for (i in 1..20) {
+                    dao.insert(ChatMessage(turnId="long-$i",role="user",content="Say LOCAL",contextJson="""{"role":"user","content":"Say LOCAL"}""",conversationId="long"))
+                    dao.insert(ChatMessage(turnId="long-$i",role="assistant",content="LOCAL",contextJson="""{"role":"assistant","content":"LOCAL"}""",conversationId="long"))
+                }
+                check(ContextWindow.turns(dao.inConversation("long")).size == 12)
+                var notice = ""
+                val agent = AgentCoordinator(dao, ToolRegistry(targetContext))
+                agent.answer("Reply with only the word LOCAL.", {}, {}, conversationId="long", context={ notice=it })
+                check(dao.inConversation("long").size == 42 && dao.inConversation("long").last().content.contains("LOCAL"))
+                check(notice.contains("/20 completed turns"))
+                var rejected=false
+                try { agent.answer("🐘".repeat(4000), {}, {}, conversationId="oversized") }
+                catch(e: IllegalStateException) { rejected=e.message.orEmpty().contains("history is preserved") }
+                check(rejected)
+                agent.answer("Reply with only the word LOCAL.", {}, {}, conversationId="oversized")
+                check(dao.inConversation("oversized").last().content.contains("LOCAL"))
+                evidence.put("contextPolicy", "Up to 12 whole recent turns, authoritative native overflow rejection/recovery, disk history retained; no generated summary or cross-chat retrieval")
+            } finally { contextDb.close() }
+        }
         step("native_cancellation_then_successful_generation") {
             var cancelled = false
             try {
@@ -369,19 +395,26 @@ class LocalValidationRunner : Instrumentation() {
         step("Compose_controls_memory_and_collapsible_real_tool_evidence") {
             clickText("Controls")
             waitForText("Generation controls")
+            scrollToVisibleText("Temperature", forward = true)
             waitForText("Temperature")
             screenshot("generation-controls")
             clickText("Reset defaults")
             clickText("Done")
             clickText("Memory")
             waitForText("Saved memory")
-            val field = waitNode { it.isEditable && it.isEnabled }
+            scrollToVisibleText("Memory note", forward = true)
+            val field = waitNode { it.isEditable && it.isEnabled && it.contentDescription?.toString()?.contains("Memory note input") == true }
             check(field.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "UI memory proof") }))
             waitNode { it.isEditable && it.text?.toString() == "UI memory proof" }
+            scrollToVisibleText("Save memory", forward = true)
             clickText("Save memory")
             waitForText("UI memory proof")
+            scrollToVisibleText("UI memory proof", forward = false)
             screenshot("saved-memory")
+            scrollToVisibleText("Delete", forward = false)
             clickText("Delete")
+            waitForText("Delete saved memory?")
+            clickText("Delete memory")
             clickText("Done")
             val answer = completedUiTurn("What time is it on my phone? Use get_local_time and include the exact ISO datetime from the tool result.")
             check(answer.metricsJson != null)
@@ -409,6 +442,72 @@ class LocalValidationRunner : Instrumentation() {
             scrollToVisibleText("Hide evidence ▴", forward = false)
             clickText("Hide evidence ▴")
             screenshot("collapsed-tool-evidence")
+        }
+        step("Compose_chat_search_rename_export_cancel_and_delete") {
+            val vm = ViewModelProvider(activity as MainActivity)[ChatViewModel::class.java]
+            val original = vm.conversationId.value
+            clickText("New chat")
+            withTimeout(30000) { while(vm.conversationId.value == original || vm.state.value.busy) delay(100) }
+            clickText("Chat options")
+            waitForText("Chat options")
+            setInput("Chat title input", "Sprint QA renamed")
+            clickText("Save title")
+            withTimeout(30000) { while(vm.state.value.busy) delay(100) }
+            clickText("Chats");waitForText("Your chats")
+            setInput("Search chats input", "Sprint QA renamed")
+            waitForText("Sprint QA renamed")
+            screenshot("chat-search")
+            clickText("Options for Sprint QA renamed")
+            waitForText("Chat options")
+            clickText("Export this chat")
+            waitForText("Local_Agents_chat")
+            repeat(3) {
+                if(find(uiRoot()) { it.contentDescription?.toString()=="Menu" && it.packageName?.toString()==targetContext.packageName } == null) {
+                    sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK); SystemClock.sleep(300)
+                }
+            }
+            waitForText("Local Agents")
+            check(!vm.state.value.busy)
+            clickText("Chat options"); waitForText("Chat options")
+            clickText("Delete this chat"); waitForText("Delete chat?")
+            clickText("Keep chat");clickText("Delete this chat");clickText("Delete chat")
+            withTimeout(30000) { while(vm.state.value.busy) delay(100) }
+            val db = Room.databaseBuilder(targetContext, ChatDatabase::class.java,"lfm-chats.db").build()
+            try {
+                check(db.messages().allConversations().none { it.title=="Sprint QA renamed" })
+                check(db.messages().inConversation(original).isNotEmpty())
+                check(db.messages().allMemories().isEmpty())
+            } finally { db.close() }
+            runOnMainSync { vm.searchChats("");vm.selectConversation(original) }
+            check(completedUiTurn("Reply with only the word LOCAL.").content.contains("LOCAL"))
+        }
+        step("production_JSON_export_paginates_and_preserves_private_storage") {
+            val vm = ViewModelProvider(activity as MainActivity)[ChatViewModel::class.java]
+            val file = File(targetContext.cacheDir,"synthetic-history-export.json")
+            try {
+                runOnMainSync { vm.exportHistory(Uri.fromFile(file), true) }
+                withTimeout(30000) { while(vm.state.value.busy) delay(100) }
+                check(vm.state.value.status == "Export saved to your chosen document") { vm.state.value.managementError }
+                val exported = JSONObject(file.readText())
+                check(exported.getString("format")=="local-agents-history" && exported.getInt("version")==1)
+                check(exported.getJSONArray("messages").length()>0)
+                for(i in 0 until exported.getJSONArray("messages").length()) {
+                    val row=exported.getJSONArray("messages").getJSONObject(i)
+                    check(!row.has("contextJson") && !row.has("metricsJson"))
+                }
+                val db=Room.databaseBuilder(targetContext,ChatDatabase::class.java,"export-paging.db").build()
+                try {
+                    val dao=db.messages();dao.createConversation(Conversation("batch","Export paging"))
+                    for(i in 1..205) dao.insert(ChatMessage(turnId="$i",role="user",content="Synthetic quote \"\n$i",conversationId="batch"))
+                    val first=dao.exportPage("batch",200,0);val last=dao.exportPage("batch",200,200)
+                    check(first.size==200 && last.size==5 && dao.exportPage("batch",200,205).isEmpty())
+                    check((first+last).map{it.id}.distinct().size==205)
+                    dao.renameConversation("batch","Renamed paging");check(dao.searchConversations("Synthetic quote").first().single().title=="Renamed paging")
+                    dao.saveMemory(MemoryFact(content="Keep across chat deletion"));dao.deleteChat("batch")
+                    check(dao.inConversation("batch").isEmpty() && dao.allConversations().isEmpty() && dao.allMemories().single().content=="Keep across chat deletion")
+                } finally { db.close() }
+                evidence.put("exportPolicy","Production writer generated valid JSON via app-private file URI; SAF destination picker opened and cancellation tested separately; physical document-provider save acceptance pending")
+            } finally { file.delete() }
         }
         step("Compose_rotation_preserves_history_and_native_session") {
             rotate(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE)
@@ -482,6 +581,38 @@ class LocalValidationRunner : Instrumentation() {
             evidence.put("virtualMicLifecycle", "Actual AVD AudioRecord started, Activity backgrounded, capture stopped, text model restored; no physical Xiaomi microphone claim")
             closeActivity()
         }
+        step("Compose_voice_Send_cancel_prevents_late_submission") {
+            launch();waitForText("Ready",180000)
+            val vm=ViewModelProvider(activity as MainActivity)[ChatViewModel::class.java]
+            val db=Room.databaseBuilder(targetContext,ChatDatabase::class.java,"lfm-chats.db").build()
+            try {
+                val before=db.messages().all().count { it.role=="user" }
+                runOnMainSync { vm.setReviewVoice(false) }
+                clickText("Voice input")
+                withTimeout(180000) { while(!vm.state.value.recording) { check(vm.state.value.busy) { vm.state.value.status };delay(100) } }
+                waitForText("Send voice");screenshot("voice-send")
+                clickText("Send voice")
+                runOnMainSync { vm.cancel() }
+                withTimeout(180000) { while(vm.state.value.busy) delay(100) }
+                check(!vm.state.value.recording && vm.state.value.loaded)
+                check(db.messages().all().count { it.role=="user" }==before)
+                check(completedUiTurn("Reply with only the word LOCAL.").content.contains("LOCAL"))
+                evidence.put("voiceSendCancellation","Actual virtual AudioRecord -> Compose Send -> cancel; no late submitted user row; typed recovery passed. Real speech auto-send still needs physical Xiaomi acceptance.")
+            } finally { db.close() }
+        }
+        step("voice_review_preference_persists_and_controls_render") {
+            val vm=ViewModelProvider(activity as MainActivity)[ChatViewModel::class.java]
+            withTimeout(30000) { while(vm.state.value.busy) delay(100) }
+            runOnMainSync { vm.setReviewVoice(true) }
+            clickText("Controls");waitForText("Generation controls");waitForText("Review transcript first")
+            screenshot("voice-controls");clickText("Done")
+            closeActivity();launch();waitForText("Ready",180000)
+            val restored=ViewModelProvider(activity as MainActivity)[ChatViewModel::class.java]
+            check(restored.reviewVoice.value)
+            runOnMainSync { restored.setReviewVoice(false);restored.stopSpeaking() }
+            check(!restored.state.value.speaking)
+            closeActivity()
+        }
         step("Android_TTS_offline_voice_or_explicit_text_fallback") {
             val speaker = withContext(Dispatchers.Main) { OfflineSpeaker(targetContext, speaking = {}) }
             try {
@@ -494,7 +625,7 @@ class LocalValidationRunner : Instrumentation() {
             val apk = File(targetContext.filesDir, "fixtures/update.apk")
             val hash = apk.inputStream().use { java.security.MessageDigest.getInstance("SHA-256").let { d ->
                 val b = ByteArray(65536); while (true) { val n = it.read(b); if (n < 0) break; d.update(b, 0, n) }; UpdateManager.hex(d.digest()) } }
-            val update = AppUpdate(6, "0.4.1-test", "", hash, apk.length(), UpdateManager.currentSigner(targetContext), "Synthetic update validation")
+            val update = AppUpdate(8, "0.5.1-test", "", hash, apk.length(), UpdateManager.currentSigner(targetContext), "Synthetic update validation")
             UpdateManager.verifyArchive(targetContext, apk, update)
             check(runCatching { UpdateManager.verifyArchive(targetContext, apk, update.copy(code = 7)) }.isFailure)
             check(runCatching { UpdateManager.verifyArchive(targetContext, apk, update.copy(signer = "0".repeat(64))) }.isFailure)
@@ -538,7 +669,7 @@ class LocalValidationRunner : Instrumentation() {
 
     private suspend fun upgradeTests() {
         step("same_key_Android_package_update_preserves_Room_and_model") {
-            check(targetContext.packageManager.getPackageInfo(targetContext.packageName, 0).longVersionCode == 6L)
+            check(targetContext.packageManager.getPackageInfo(targetContext.packageName, 0).longVersionCode == 8L)
             check(UpdateManager.currentSigner(targetContext) == targetContext.getSharedPreferences("validation-upgrade", 0).getString("signer", null))
             val db = Room.databaseBuilder(targetContext, ChatDatabase::class.java, "lfm-chats.db").build()
             try {
@@ -623,6 +754,11 @@ class LocalValidationRunner : Instrumentation() {
         }
         error("Timed out waiting for UI node; $phase")
     }
+    private fun setInput(description: String, value: String) {
+        val field=waitNode { it.isEditable && it.isEnabled && it.contentDescription?.toString()?.contains(description)==true }
+        check(field.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,value) }))
+        waitNode { it.isEditable && it.text?.toString()==value }
+    }
     private fun waitForText(text: String, timeout: Long = 30000) =
         waitNode(timeout) { it.text?.toString()?.contains(text) == true || it.contentDescription?.toString()?.contains(text) == true }
     private fun clickText(text: String) {
@@ -631,7 +767,7 @@ class LocalValidationRunner : Instrumentation() {
         while (SystemClock.elapsedRealtime() < end) {
             val root = uiRoot()
             var node = find(root) { it.text?.toString() == text || it.contentDescription?.toString() == text }
-            if (node == null && !openedMenu && text in setOf("Models", "Controls", "Memory", "Clear chat")) {
+            if (node == null && !openedMenu && text in setOf("Models", "Controls", "Memory", "Clear chat", "Chat options")) {
                 var more = find(root) { it.contentDescription?.toString() == "Menu" }
                 while (more != null && !more.isClickable) more = more.parent
                 if (more?.isEnabled == true && more.isVisibleToUser && more.performAction(AccessibilityNodeInfo.ACTION_CLICK)) openedMenu = true

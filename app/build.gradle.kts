@@ -15,8 +15,8 @@ android {
         applicationId = "dev.lfm.mobile"
         minSdk = 28
         targetSdk = 35
-        versionCode = providers.gradleProperty("lfmVersionCode").getOrElse("5").toInt()
-        versionName = providers.gradleProperty("lfmVersionName").getOrElse("0.4.0-dev")
+        versionCode = providers.gradleProperty("lfmVersionCode").getOrElse("7").toInt()
+        versionName = providers.gradleProperty("lfmVersionName").getOrElse("0.5.0-dev")
         ndk { abiFilters += lfmAbi }
         testInstrumentationRunner = "dev.lfm.mobile.validation.LocalValidationRunner"
     }

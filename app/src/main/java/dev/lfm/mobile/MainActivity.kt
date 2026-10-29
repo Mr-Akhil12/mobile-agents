@@ -81,6 +81,11 @@ private fun ChatScreen(vm: ChatViewModel) {
     val state by vm.state.collectAsStateWithLifecycle()
     val messages by vm.messages.collectAsStateWithLifecycle()
     val conversations by vm.conversations.collectAsStateWithLifecycle()
+    val foundChats by vm.searchResults.collectAsStateWithLifecycle()
+    val chatQuery by vm.searchQuery.collectAsStateWithLifecycle()
+    var optionsChat by remember { mutableStateOf<dev.lfm.mobile.data.Conversation?>(null) }
+    var exportAll by rememberSaveable { mutableStateOf(false) }
+    var exportChatId by rememberSaveable { mutableStateOf<String?>(null) }
     val conversation by vm.conversationId.collectAsStateWithLifecycle()
     val compact = LocalConfiguration.current.screenHeightDp < 480
     var input by rememberSaveable(conversation) { mutableStateOf("") }
@@ -107,7 +112,8 @@ private fun ChatScreen(vm: ChatViewModel) {
     }
     val context = LocalContext.current
     var voiceImport by rememberSaveable { mutableStateOf<VoicePart?>(null) }
-    LaunchedEffect(state.transcriptId) { if (state.transcript.isNotEmpty()) input = state.transcript }
+    LaunchedEffect(state.transcriptId) { if (state.transcriptId > 0) input = state.transcript }
+    val exportPicker = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri -> if (uri != null) vm.exportHistory(uri, exportAll, exportChatId ?: conversation) }
     val microphonePermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) vm.startVoice() else vm.microphoneDenied() }
     val voicePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> showModels = true; if (uri != null) voiceImport?.let { vm.importVoice(it, uri) }; voiceImport = null }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> showModels = true; uri?.let(vm::importModel) }
@@ -118,16 +124,21 @@ private fun ChatScreen(vm: ChatViewModel) {
     }
     ModalNavigationDrawer(drawerState = drawer, drawerContent = {
         ModalDrawerSheet(Modifier.width(290.dp)) {
-            Column(Modifier.fillMaxSize().padding(16.dp)) {
+            Column(Modifier.fillMaxSize().imePadding().padding(16.dp)) {
                 Text("Local Agents", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(vertical = 16.dp))
                 TextButton(enabled = !state.busy, onClick = { vm.newConversation(); scope.launch { drawer.close() } }) { Text("New chat") }
                 Text("Your chats", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 12.dp))
+                OutlinedTextField(value = chatQuery, onValueChange = vm::searchChats, label = { Text("Search chats") }, singleLine = true, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Search chats input" })
                 LazyColumn(Modifier.weight(1f)) {
-                    items(conversations, key = { it.id }) { chat ->
-                        TextButton(enabled = !state.busy, modifier = Modifier.fillMaxWidth(), onClick = { vm.selectConversation(chat.id); scope.launch { drawer.close() } }) {
+                    items(if (chatQuery.isBlank()) conversations else foundChats, key = { it.id }) { chat ->
+                        Row {
+                        TextButton(enabled = !state.busy, modifier = Modifier.weight(1f), onClick = { vm.selectConversation(chat.id); scope.launch { drawer.close() } }) {
                             Text((if (chat.id == conversation) "• " else "") + chat.title, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.fillMaxWidth())
                         }
+                        TextButton(enabled = !state.busy, onClick = { optionsChat = chat; scope.launch { drawer.close() } }, modifier = Modifier.semantics { contentDescription = "Options for " + chat.title }) { Text("•••") }
+                        }
                     }
+                    if (chatQuery.isNotBlank() && foundChats.isEmpty()) item { Text("No matching chats", modifier = Modifier.padding(12.dp)) }
                 }
                 TextButton(onClick = { showModels = true; scope.launch { drawer.close() } }) { Text("Models") }
                 TextButton(enabled = !state.busy, onClick = { showMemory = true; scope.launch { drawer.close() } }) { Text("Memory") }
@@ -148,6 +159,7 @@ private fun ChatScreen(vm: ChatViewModel) {
                             DropdownMenuItem(text = { Text("Models") }, onClick = { menu = false; showModels = true })
                             DropdownMenuItem(text = { Text("Controls") }, enabled = !state.busy, onClick = { menu = false; showControls = true })
                             DropdownMenuItem(text = { Text("Memory") }, enabled = !state.busy, onClick = { menu = false; showMemory = true })
+                            DropdownMenuItem(text = { Text("Chat options") }, enabled = !state.busy, onClick = { menu = false; optionsChat = conversations.firstOrNull { it.id == conversation } })
                             DropdownMenuItem(text = { Text("App updates") }, onClick = { menu = false; showUpdates = true })
                             DropdownMenuItem(text = { Text("Clear chat") }, enabled = !state.busy, onClick = { menu = false; confirmClear = true })
                         }
@@ -171,6 +183,10 @@ private fun ChatScreen(vm: ChatViewModel) {
                         if (state.streaming.isNotEmpty()) RichAnswer(state.streaming)
                     }
                 }
+                if (state.speaking) TextButton(onClick = vm::stopSpeaking, modifier = Modifier.padding(horizontal = 16.dp)) { Text("Stop speaking") }
+                if (state.contextNotice.isNotEmpty() && !state.working) Text(state.contextNotice.substringBefore(". Older"), style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 22.dp))
+                if (state.voiceTiming.isNotEmpty() && !state.working) VoiceTimingDetails(state.voiceTiming)
+                if (state.managementError.isNotEmpty()) Text(state.managementError, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 22.dp))
                 if (state.working) Text("Working for " + String.format(java.util.Locale.US, "%.1f s", elapsed / 1000.0) + " · " + state.status,
                     style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 22.dp, vertical = 4.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -186,15 +202,18 @@ private fun ChatScreen(vm: ChatViewModel) {
                                 disabledContainerColor = Color.Transparent, focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent, disabledIndicatorColor = Color.Transparent))
                         Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                             TextButton(onClick = { showControls = true }, enabled = !state.busy) { Text("Controls") }
-                            if (state.recording) TextButton(onClick = vm::finishVoiceRecording) { Text("Stop recording") }
-                            else if (!state.busy) AgentIconButton(R.drawable.ic_mic, "Voice input") {
+                            if (!state.busy) AgentIconButton(R.drawable.ic_mic, "Voice input") {
                                 if (!vm.voiceModels.ready) showModels = true
                                 else if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) vm.startVoice()
                                 else microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
                             }
                             Spacer(Modifier.weight(1f))
-                            if (state.busy || state.speaking) AgentIconButton(R.drawable.ic_stop, "Cancel") { vm.cancel() }
-                            else FilledIconButton(onClick = { vm.send(input); input = "" }, enabled = state.loaded && input.isNotBlank(),
+                            if (state.recording) {
+                                AgentIconButton(R.drawable.ic_stop, "Cancel recording") { vm.cancel() }
+                                FilledIconButton(onClick = vm::finishVoiceRecording) { Icon(painterResource(R.drawable.ic_send), contentDescription = "Send voice", modifier = Modifier.size(22.dp)) }
+                            }
+                            else if (state.busy || state.speaking) AgentIconButton(R.drawable.ic_stop, "Cancel") { vm.cancel() }
+                            else FilledIconButton(onClick = { if (vm.send(input)) input = "" }, enabled = state.loaded && input.isNotBlank(),
                                 colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.White, contentColor = Color.Black)) {
                                 Icon(painterResource(R.drawable.ic_send), contentDescription = "Send", modifier = Modifier.size(22.dp))
                             }
@@ -204,6 +223,10 @@ private fun ChatScreen(vm: ChatViewModel) {
             }
         }
     }
+    optionsChat?.let { chat -> ChatOptions(vm, chat, onDismiss = { optionsChat = null }, onExport = { all ->
+        exportAll = all; exportChatId = chat.id; optionsChat = null
+        exportPicker.launch(if (all) "Local_Agents_all_data.json" else "Local_Agents_chat.json")
+    }) }
     if (showUpdates) AlertDialog(onDismissRequest = { vm.updates.dismiss(); showUpdates = false }, title = { Text("App updates") }, text = {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Installed: " + vm.updates.currentVersion)
@@ -338,14 +361,23 @@ private fun MessageBody(message: ChatMessage) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = { clipboard.setText(AnnotatedString(message.content)) }, contentPadding = PaddingValues(horizontal = 0.dp)) { Text("Copy", style = MaterialTheme.typography.labelSmall) }
                 Spacer(Modifier.width(12.dp))
-                message.metricsJson?.let { json -> runCatching { InferenceMetrics.fromJson(json) }.getOrNull()?.let { PerformanceDetails(it) } }
+                message.metricsJson?.let { json -> runCatching { InferenceMetrics.fromJson(json) }.getOrNull()?.let { PerformanceDetails(it, json) } }
             }
+
         }
     }
 }
 
 @Composable
-private fun PerformanceDetails(metrics: InferenceMetrics) {
+private fun VoiceTimingDetails(json: String) {
+    val timing = remember(json) { runCatching { org.json.JSONObject(json) }.getOrNull() } ?: return
+    fun seconds(key: String) = String.format(java.util.Locale.US, "%.1f s", timing.optLong(key) / 1000.0)
+    Text("Voice · audio ${seconds("audio_ms")} · transcription ${seconds("asr_ms")} · load ${seconds("load_ms")} · restore ${seconds("restore_ms")}",
+        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
+}
+
+@Composable
+private fun PerformanceDetails(metrics: InferenceMetrics, json: String) {
     var details by rememberSaveable { mutableStateOf(false) }
     Column {
         TextButton(onClick = { details = !details }, contentPadding = PaddingValues(0.dp)) {
@@ -353,6 +385,9 @@ private fun PerformanceDetails(metrics: InferenceMetrics) {
                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (details) {
+            val extra = remember(json) { runCatching { org.json.JSONObject(json) }.getOrNull() }
+            extra?.optJSONObject("voice")?.let { VoiceTimingDetails(it.toString()) }
+            extra?.optString("context")?.takeIf { it.isNotEmpty() }?.let { Text(it, style = MaterialTheme.typography.labelSmall) }
             fun speed(v: Double?) = v?.let { String.format(java.util.Locale.US, "%.1f tok/s", it) } ?: "Not measured"
             Text("Ingestion ${speed(metrics.ingestionSpeed)} · Generation ${speed(metrics.generationSpeed)}\n" +
                 "${metrics.promptTokens} decoded input · ${metrics.reusedPromptTokens} reused · ${metrics.generatedTokens} generated · ${metrics.calls} model call(s)",
