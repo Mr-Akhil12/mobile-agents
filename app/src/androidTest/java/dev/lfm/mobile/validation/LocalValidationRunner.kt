@@ -335,6 +335,7 @@ class LocalValidationRunner : Instrumentation() {
             launch()
             waitForText("Ready", 180000)
             clickText("Models")
+            waitForText("On-device models")
             scrollToVisibleText("Unload and delete model", forward = true)
             clickText("Unload and delete model")
             scrollToVisibleText("Import text model", forward = false)
@@ -642,11 +643,12 @@ class LocalValidationRunner : Instrumentation() {
         error("Timed out waiting for enabled clickable $text")
     }
     private fun scrollToVisibleText(text: String, forward: Boolean) {
-        repeat(15) {
+        repeat(120) {
             if (find(uiRoot()) { it.isVisibleToUser && it.text?.toString()?.contains(text) == true } != null) return
             val list = find(uiRoot()) { it.isScrollable && it.isVisibleToUser }
-            check(list != null) { "No scrollable content while seeking $text" }
-            list.performAction(if (forward) AccessibilityNodeInfo.ACTION_SCROLL_FORWARD else AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)
+            // Accessibility can briefly expose the outgoing menu/picker window.
+            // Wait for the dialog's scrollable content rather than failing that transition.
+            list?.performAction(if (forward) AccessibilityNodeInfo.ACTION_SCROLL_FORWARD else AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)
             SystemClock.sleep(250)
         }
         error("Could not scroll to $text")
