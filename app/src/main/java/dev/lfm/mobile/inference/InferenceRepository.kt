@@ -1,6 +1,7 @@
 package dev.lfm.mobile.inference
 
 import dev.lfm.nativebridge.NativeInference
+import dev.lfm.nativebridge.NativeOmni
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.currentCoroutineContext
@@ -17,5 +18,10 @@ object InferenceRepository {
         withContext(dispatcher) { currentCoroutineContext().ensureActive(); NativeInference.generateConfigured(messages, tools, settings.toJson(), onContent) }
     suspend fun supportsThinking(): Boolean = withContext(dispatcher) { NativeInference.supportsThinking() }
     suspend fun unload() = withContext(dispatcher) { NativeInference.unload() }
-    fun cancel() = NativeInference.cancel()
+    suspend fun loadVoice(model: String, projector: String): Int = withContext(dispatcher) {
+        currentCoroutineContext().ensureActive(); NativeInference.unload(); NativeOmni.load(model, projector); NativeOmni.sampleRate()
+    }
+    suspend fun transcribe(samples: FloatArray, rate: Int): String = withContext(dispatcher) { currentCoroutineContext().ensureActive(); NativeOmni.transcribe(samples, rate) }
+    suspend fun unloadVoice() = withContext(dispatcher) { NativeOmni.unload() }
+    fun cancel() { NativeInference.cancel(); NativeOmni.cancel() }
 }

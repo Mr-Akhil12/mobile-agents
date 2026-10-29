@@ -9,6 +9,16 @@
 #include <chrono>
 #include <cmath>
 
+void initialize_backends() {
+    static std::once_flag backend;
+    std::call_once(backend, [] {
+        common_log_set_verbosity_thold(0);
+        llama_log_set([](ggml_log_level, const char *, void *) {}, nullptr);
+        ggml_backend_load_all();
+        llama_backend_init();
+    });
+}
+
 Runtime::~Runtime() { release(); }
 void Runtime::release() {
     std::vector<llama_token>().swap(cached_prompt);
@@ -23,13 +33,7 @@ void Runtime::unload() { std::lock_guard<std::mutex> lock(mutex); release(); }
 void Runtime::load(const std::string & path) {
     std::lock_guard<std::mutex> lock(mutex);
     release();
-    static std::once_flag backend;
-    std::call_once(backend, [] {
-        common_log_set_verbosity_thold(0);
-        llama_log_set([](ggml_log_level, const char *, void *) {}, nullptr);
-        ggml_backend_load_all();
-        llama_backend_init();
-    });
+    initialize_backends();
     auto mp = llama_model_default_params();
     mp.n_gpu_layers = 0;
     cancelled.store(false);

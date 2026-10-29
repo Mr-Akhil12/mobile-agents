@@ -6,10 +6,10 @@ mkdir -p validation-evidence
 collect_evidence() {
     adb logcat -d > validation-evidence/logcat.txt 2>&1 || true
     adb shell run-as dev.lfm.mobile ls files/validation > validation-evidence/device-files.txt 2>&1 || true
-    for report in core.json restart.json core-ui.json restart-ui.json; do
+    for report in core.json restart.json voice.json upgrade.json core-ui.json restart-ui.json voice-ui.json upgrade-ui.json; do
         adb exec-out run-as dev.lfm.mobile cat "files/validation/$report" > "validation-evidence/$report" 2>/dev/null || true
     done
-    for shot in onboarding saf-import real-chat cancel-recovery landscape-chat portrait-after-rotation history-after-process-restart cleared-chat expanded-tool-evidence collapsed-tool-evidence generation-controls saved-memory core-final restart-final; do
+    for shot in onboarding saf-import real-chat cancel-recovery landscape-chat portrait-after-rotation history-after-process-restart cleared-chat expanded-tool-evidence collapsed-tool-evidence generation-controls saved-memory core-final restart-final voice-final upgrade-final after-package-upgrade; do
         adb exec-out run-as dev.lfm.mobile cat "files/validation/$shot.png" > "validation-evidence/$shot.png" 2>/dev/null || true
     done
     find validation-evidence -type f -empty -delete
@@ -46,13 +46,30 @@ test "$(adb shell settings get global wifi_on | tr -d '\r')" = 0
     sha256sum app/build/outputs/apk/debug/app-debug.apk
 } > validation-evidence/environment.txt
 
-for phase in core restart; do
-    # This terminates the actual target app process between phases. The second
-    # instrumentation invocation must reopen the persisted Room DB and native model.
-    adb shell am force-stop dev.lfm.mobile
-    timeout 1500 adb shell am instrument -w -e phase "$phase" \
+run_phase() {
+    local phase=$1
+    adb shell am force-stop dev.lfm.mobile || return 1
+    timeout 1800 adb shell am instrument -w -e phase "$phase" \
         dev.lfm.mobile.test/dev.lfm.mobile.validation.LocalValidationRunner \
-        | tee "validation-evidence/instrumentation-$phase.txt"
-    adb exec-out run-as dev.lfm.mobile cat "files/validation/$phase.json" > "validation-evidence/$phase.json"
+        | tee "validation-evidence/instrumentation-$phase.txt" || return 1
+    adb exec-out run-as dev.lfm.mobile cat "files/validation/$phase.json" > "validation-evidence/$phase.json" || return 1
     python3 scripts/verify-emulator-report.py "validation-evidence/$phase.json"
+}
+# Keep independent voice diagnostics even when an earlier UI phase fails.
+# The final shell exit still fails closed if ANY required phase failed.
+failed=0
+for phase in core restart; do run_phase "$phase" || failed=1; done
+
+# Core import checks are finished. Free duplicate text fixtures before importing
+# the real Omni pair, which is copied/checksummed by the production store.
+adb shell run-as dev.lfm.mobile rm -f files/fixtures/model.gguf
+adb shell rm -f /sdcard/Download/LFM3-1.7B-Q5_K_M.gguf
+for fixture in omni.gguf omni-projector.gguf voice.wav jfk.wav update.apk; do
+    adb shell run-as dev.lfm.mobile sh -c "\"cat > files/fixtures/$fixture\"" < "$RUNNER_TEMP/$fixture"
 done
+run_phase voice || failed=1
+# Real Android PackageManager upgrade with the same signer; no uninstall/clear.
+adb shell am force-stop dev.lfm.mobile
+adb install -r "$RUNNER_TEMP/update.apk"
+run_phase upgrade || failed=1
+exit "$failed"

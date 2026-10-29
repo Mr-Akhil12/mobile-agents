@@ -42,16 +42,23 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.lfm.mobile.data.ChatMessage
 import dev.lfm.mobile.inference.InferenceMetrics
 import dev.lfm.mobile.inference.ModelStore
+import dev.lfm.mobile.inference.VoicePart
+import android.Manifest
+import android.content.pm.PackageManager
 import dev.lfm.mobile.ui.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
+    private lateinit var chatVm: ChatViewModel
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val vm = ViewModelProvider(this)[ChatViewModel::class.java]
+        chatVm = vm
         setContent { LocalAgentsTheme { ChatScreen(vm) } }
     }
+    override fun onStart() { super.onStart(); if (::chatVm.isInitialized) chatVm.onForeground(true) }
+    override fun onStop() { if (::chatVm.isInitialized) chatVm.onForeground(false); super.onStop() }
 }
 
 private data class ChatItem(val rows: List<ChatMessage>) {
@@ -78,11 +85,17 @@ private fun ChatScreen(vm: ChatViewModel) {
     val compact = LocalConfiguration.current.screenHeightDp < 480
     var input by rememberSaveable(conversation) { mutableStateOf("") }
     var showModels by remember { mutableStateOf(false) }
+    var voiceSettingsError by remember { mutableStateOf("") }
     var confirmClear by remember { mutableStateOf(false) }
     var showLicense by remember { mutableStateOf(false) }
     var showControls by remember { mutableStateOf(false) }
     var showMemory by remember { mutableStateOf(false) }
     var menu by remember { mutableStateOf(false) }
+    var showUpdates by remember { mutableStateOf(false) }
+    val update by vm.updates.state.collectAsStateWithLifecycle()
+    var automaticUpdates by remember { mutableStateOf(vm.updates.autoCheck) }
+    var installError by remember { mutableStateOf("") }
+    LaunchedEffect(update.available?.code, state.busy, state.speaking) { update.available?.let { if (!state.busy && !state.speaking && vm.updates.shouldPrompt(it)) showUpdates = true } }
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var elapsed by remember { mutableLongStateOf(0) }
@@ -93,6 +106,10 @@ private fun ChatScreen(vm: ChatViewModel) {
         } else elapsed = 0
     }
     val context = LocalContext.current
+    var voiceImport by remember { mutableStateOf<VoicePart?>(null) }
+    LaunchedEffect(state.transcriptId) { if (state.transcript.isNotEmpty()) input = state.transcript }
+    val microphonePermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) vm.startVoice() else vm.microphoneDenied() }
+    val voicePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) voiceImport?.let { vm.importVoice(it, uri) }; voiceImport = null }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> uri?.let(vm::importModel) }
     val scroll = rememberLazyListState()
     val items = remember(messages) { chatItems(messages) }
@@ -131,6 +148,7 @@ private fun ChatScreen(vm: ChatViewModel) {
                             DropdownMenuItem(text = { Text("Models") }, onClick = { menu = false; showModels = true })
                             DropdownMenuItem(text = { Text("Controls") }, enabled = !state.busy, onClick = { menu = false; showControls = true })
                             DropdownMenuItem(text = { Text("Memory") }, enabled = !state.busy, onClick = { menu = false; showMemory = true })
+                            DropdownMenuItem(text = { Text("App updates") }, onClick = { menu = false; showUpdates = true })
                             DropdownMenuItem(text = { Text("Clear chat") }, enabled = !state.busy, onClick = { menu = false; confirmClear = true })
                         }
                     }
@@ -168,8 +186,14 @@ private fun ChatScreen(vm: ChatViewModel) {
                                 disabledContainerColor = Color.Transparent, focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent, disabledIndicatorColor = Color.Transparent))
                         Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                             TextButton(onClick = { showControls = true }, enabled = !state.busy) { Text("Controls") }
+                            if (state.recording) TextButton(onClick = vm::finishVoiceRecording) { Text("Stop recording") }
+                            else if (!state.busy) AgentIconButton(R.drawable.ic_mic, "Voice input") {
+                                if (!vm.voiceModels.ready) showModels = true
+                                else if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) vm.startVoice()
+                                else microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
+                            }
                             Spacer(Modifier.weight(1f))
-                            if (state.busy) AgentIconButton(R.drawable.ic_stop, "Cancel") { vm.cancel() }
+                            if (state.busy || state.speaking) AgentIconButton(R.drawable.ic_stop, "Cancel") { vm.cancel() }
                             else FilledIconButton(onClick = { vm.send(input); input = "" }, enabled = state.loaded && input.isNotBlank(),
                                 colors = IconButtonDefaults.filledIconButtonColors(containerColor = Color.White, contentColor = Color.Black)) {
                                 Icon(painterResource(R.drawable.ic_send), contentDescription = "Send", modifier = Modifier.size(22.dp))
@@ -180,9 +204,33 @@ private fun ChatScreen(vm: ChatViewModel) {
             }
         }
     }
+    if (showUpdates) AlertDialog(onDismissRequest = { vm.updates.dismiss(); showUpdates = false }, title = { Text("App updates") }, text = {
+        Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("Installed: " + vm.updates.currentVersion)
+            Text(update.message)
+            if (update.busy) LinearProgressIndicator(progress = { update.progress / 100f }, modifier = Modifier.fillMaxWidth())
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(checked = automaticUpdates, onCheckedChange = { automaticUpdates = it; vm.updates.setAutoCheck(it) })
+                Text("Check daily when opening the app")
+            }
+            Text("Checks contact this project's public GitHub releases. Chats, memory and models stay on your phone. Updates require the same signing identity and Android's approval.", style = MaterialTheme.typography.bodySmall)
+            update.available?.let { release ->
+                Text("Version " + release.version, style = MaterialTheme.typography.titleSmall)
+                Text(release.notes)
+                if (update.downloaded) TextButton(enabled = !state.busy, onClick = { scope.launch {
+                    try { context.startActivity(vm.updates.installerIntent()); installError = "If Android asked for install permission, return here and tap Install update again." }
+                    catch (e: Exception) { installError = e.message ?: "Android installer unavailable" }
+                } }) { Text("Install update") }
+                else TextButton(enabled = !update.busy, onClick = vm.updates::download) { Text("Download update") }
+            }
+            if (installError.isNotEmpty()) Text(installError)
+            if (update.busy) TextButton(onClick = vm.updates::cancel) { Text("Cancel download/check") }
+        }
+    }, confirmButton = { TextButton(enabled = !update.busy, onClick = vm.updates::check) { Text("Check now") } },
+        dismissButton = { TextButton(onClick = { vm.updates.dismiss(); showUpdates = false }) { Text("Close") } })
     if (showControls) AgentControls(vm, onDismiss = { showControls = false })
     if (showMemory) MemoryDialog(vm, onDismiss = { showMemory = false })
-    if (showModels) AlertDialog(onDismissRequest = { showModels = false }, title = { Text("Local text model") }, text = {
+    if (showModels) AlertDialog(onDismissRequest = { showModels = false }, title = { Text("On-device models") }, text = {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("LFM3-1.7B · Q5_K_M\n1,258,663,200 bytes (1.26 GB)\nReserve at least 1.5 GB app storage in addition to the downloaded file.")
             Text("Use the official file. Import copies it into private storage and verifies its pinned SHA-256. No model is bundled with the APK.")
@@ -190,6 +238,19 @@ private fun ChatScreen(vm: ChatViewModel) {
             TextButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(ModelStore.SOURCE))) }) { Text("Official model download") }
             TextButton(onClick = { showLicense = true }) { Text("Model license (offline)") }
             TextButton(enabled = !state.busy, onClick = { showModels = false; vm.removeModel() }) { Text("Unload and delete model") }
+            HorizontalDivider()
+            Text("Omni offline voice · model + paired projector", style = MaterialTheme.typography.titleSmall)
+            Text(if (vm.voiceModels.ready) "Both voice files verified. Tap the microphone, stop when finished, then review the transcript before Send." else "Import both files (1,099,630,080 + 540,892,768 bytes). Existing matching Termux downloads are supported. Voice uses one model at a time to limit RAM.")
+            VoicePart.entries.forEach { part ->
+                TextButton(enabled = !state.busy, onClick = { showModels = false; voiceImport = part; voicePicker.launch(arrayOf("*/*")) }) { Text("Import " + if (part == VoicePart.MODEL) "Omni model" else "Omni projector") }
+                TextButton(onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(part.source))) }) { Text("Official " + if (part == VoicePart.MODEL) "Omni download" else "projector download") }
+            }
+            Text("Spoken replies use an installed offline Android TTS voice, not cloud speech. Microphone capture stops when the app leaves the foreground.")
+            TextButton(onClick = {
+                try { context.startActivity(Intent("com.android.settings.TTS_SETTINGS")) }
+                catch (e: android.content.ActivityNotFoundException) { voiceSettingsError = "Open Android Settings and select an installed offline text-to-speech voice." }
+            }) { Text("Android voice settings") }
+            if (voiceSettingsError.isNotEmpty()) Text(voiceSettingsError)
         }
     }, confirmButton = { TextButton(enabled = !state.busy, onClick = { showModels = false; picker.launch(arrayOf("*/*")) }) { Text("Import GGUF") } }, dismissButton = {
         TextButton(onClick = { showModels = false }) { Text("Close") }

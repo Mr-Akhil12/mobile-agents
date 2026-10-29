@@ -1,0 +1,10 @@
+{
+  "model": "LiquidAI/LFM3-Omni-2B-GGUF",
+  "revision": "2918dd47cfceb4f260cd1734cd1aac1b22bbe4b6",
+  "file": "LFM3-Omni-2B-Q4_K_M.gguf",
+  "bytes": 1099630080,
+  "sha256": "9f8d30e9d4fd7a9349d586e077988229b3ca0a0e4ad730897563d1eccc9893e2",
+  "license": "LFM Open License v1.0",
+  "llama_cpp_commit": "522021325546ea322b0b1e58a50f9dbf03a5f197",
+  "source": "https://huggingface.co/LiquidAI/LFM3-Omni-2B-GGUF/resolve/2918dd47cfceb4f260cd1734cd1aac1b22bbe4b6/LFM3-Omni-2B-Q4_K_M.gguf"
+}

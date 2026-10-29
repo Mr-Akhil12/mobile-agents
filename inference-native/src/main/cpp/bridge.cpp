@@ -1,10 +1,12 @@
 #include "runtime.h"
+#include "omni.h"
 #include <jni.h>
 #include <codecvt>
 #include <locale>
 #include <stdexcept>
 
 static Runtime runtime;
+static OmniRuntime omni;
 static std::string utf8(JNIEnv * env, jstring s) {
     const jchar * chars = env->GetStringChars(s, nullptr);
     std::u16string value(reinterpret_cast<const char16_t *>(chars), env->GetStringLength(s));
@@ -51,3 +53,21 @@ extern "C" JNIEXPORT jboolean JNICALL Java_dev_lfm_nativebridge_NativeInference_
     try { return runtime.supports_thinking(); }
     catch (const std::exception & e) { fail(env, e); return JNI_FALSE; }
 }
+
+extern "C" JNIEXPORT void JNICALL Java_dev_lfm_nativebridge_NativeOmni_load(JNIEnv * env, jobject, jstring model, jstring projector) {
+    try { omni.load(utf8(env, model), utf8(env, projector)); } catch (const std::exception & e) { fail(env, e); }
+}
+extern "C" JNIEXPORT jint JNICALL Java_dev_lfm_nativebridge_NativeOmni_sampleRate(JNIEnv * env, jobject) {
+    try { return omni.sample_rate(); } catch (const std::exception & e) { fail(env, e); return 0; }
+}
+extern "C" JNIEXPORT jstring JNICALL Java_dev_lfm_nativebridge_NativeOmni_transcribe(JNIEnv * env, jobject, jfloatArray input, jint rate) {
+    try {
+        const auto count = env->GetArrayLength(input);
+        if (rate <= 0 || rate > 48000 || count < rate / 4 || count > rate * 20) throw std::runtime_error("Invalid voice audio length/rate");
+        std::vector<float> samples(count); env->GetFloatArrayRegion(input, 0, count, samples.data());
+        if (env->ExceptionCheck()) return nullptr;
+        return java_string(env, omni.transcribe(samples, rate));
+    } catch (const std::exception & e) { if (!env->ExceptionCheck()) fail(env, e); return nullptr; }
+}
+extern "C" JNIEXPORT void JNICALL Java_dev_lfm_nativebridge_NativeOmni_cancel(JNIEnv *, jobject) { omni.cancel(); }
+extern "C" JNIEXPORT void JNICALL Java_dev_lfm_nativebridge_NativeOmni_unload(JNIEnv *, jobject) { omni.unload(); }

@@ -15,10 +15,22 @@ android {
         applicationId = "dev.lfm.mobile"
         minSdk = 28
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.3.0-dev"
+        versionCode = providers.gradleProperty("lfmVersionCode").getOrElse("5").toInt()
+        versionName = providers.gradleProperty("lfmVersionName").getOrElse("0.4.0-dev")
         ndk { abiFilters += lfmAbi }
         testInstrumentationRunner = "dev.lfm.mobile.validation.LocalValidationRunner"
+    }
+    signingConfigs {
+        if (System.getenv("LFM_SIGNING_STORE_FILE") != null) create("permanentPrototype") {
+            storeFile = file(System.getenv("LFM_SIGNING_STORE_FILE"))
+            storePassword = System.getenv("LFM_SIGNING_PASSWORD")
+            keyAlias = "local-agents"
+            keyPassword = System.getenv("LFM_SIGNING_PASSWORD")
+            enableV1Signing = false; enableV2Signing = true
+        }
+    }
+    buildTypes {
+        getByName("debug") { if (System.getenv("LFM_SIGNING_STORE_FILE") != null) signingConfig = signingConfigs.getByName("permanentPrototype") }
     }
     buildFeatures { compose = true }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }

@@ -6,6 +6,8 @@
 #include "llama.h"
 #include "chat.h"
 
+void initialize_backends();
+
 struct GenerationOptions {
     float temperature = 0.1f;
     int max_tokens = 512;

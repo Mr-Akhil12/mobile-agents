@@ -6,7 +6,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-manifest = json.loads(Path("model-manifests/text-model.json").read_text())
+manifest = json.loads(Path(sys.argv[2] if len(sys.argv) > 2 else "model-manifests/text-model.json").read_text())
 destination = Path(sys.argv[1])
 destination.parent.mkdir(parents=True, exist_ok=True)
 subprocess.run([
