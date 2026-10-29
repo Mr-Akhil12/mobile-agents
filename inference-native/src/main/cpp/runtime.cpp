@@ -11,6 +11,8 @@
 
 Runtime::~Runtime() { release(); }
 void Runtime::release() {
+    std::vector<llama_token>().swap(cached_prompt);
+    std::vector<uint8_t>().swap(cached_state);
     templates.reset();
     if (context) llama_free(context);
     if (model) llama_model_free(model);
@@ -65,6 +67,10 @@ std::string Runtime::generate(const std::string & messages, const std::string & 
         throw std::runtime_error("Generation settings out of supported range");
     if (options.thinking && !common_chat_templates_support_enable_thinking(templates.get()))
         throw std::runtime_error("Loaded model template does not support thinking control");
+    bool completed = false;
+    struct Cleanup { std::function<void()> action; ~Cleanup() { action(); } } cleanup{[&] {
+        if (!completed) { cached_prompt.clear(); cached_state.clear(); llama_memory_clear(llama_get_memory(context), true); }
+    }};
     cancelled.store(false);
     common_chat_templates_inputs input;
     input.messages = common_chat_msgs_parse_oaicompat(common_json::parse(messages));
@@ -82,15 +88,40 @@ std::string Runtime::generate(const std::string & messages, const std::string & 
     const int budget = options.max_tokens;
     if (tokens.empty() || tokens.size() + budget > llama_n_ctx(context))
         throw std::runtime_error("Context full: start a new chat or use a shorter prompt");
-    llama_memory_clear(llama_get_memory(context), true);
     using Clock = std::chrono::steady_clock;
     const auto prompt_start = Clock::now();
-    for (size_t offset = 0; offset < tokens.size(); offset += 256) {
+    // Save prefill state before the final prompt token. Restoring a complete
+    // sequence works for the hybrid recurrent model too; partial KV rollback
+    // is deliberately not assumed. Decode at least one token for fresh logits.
+    const size_t prefix_end = tokens.size() - 1;
+    size_t reused = 0;
+    llama_memory_clear(llama_get_memory(context), true);
+    if (!cached_state.empty() && !cached_prompt.empty() && cached_prompt.size() <= prefix_end &&
+        std::equal(cached_prompt.begin(), cached_prompt.end(), tokens.begin())) {
+        if (llama_state_seq_set_data(context, cached_state.data(), cached_state.size(), 0) == cached_state.size())
+            reused = cached_prompt.size();
+        else llama_memory_clear(llama_get_memory(context), true);
+    }
+    for (size_t offset = reused; offset < prefix_end; offset += 256) {
         if (cancelled.load()) throw std::runtime_error("Cancelled");
-        auto count = std::min<size_t>(256, tokens.size() - offset);
+        auto count = std::min<size_t>(256, prefix_end - offset);
         auto batch = llama_batch_get_one(tokens.data() + offset, static_cast<int>(count));
         if (llama_decode(context, batch) != 0) throw std::runtime_error(cancelled ? "Cancelled" : "Prompt decode failed");
     }
+    // Process-local only, never written to disk. Bounded independently of KV.
+    constexpr size_t cache_limit = 128ULL * 1024 * 1024;
+    const auto state_size = prefix_end ? llama_state_seq_get_size(context, 0) : 0;
+    if (state_size && state_size <= cache_limit) {
+        try {
+            cached_state.resize(state_size);
+            if (llama_state_seq_get_data(context, cached_state.data(), state_size, 0) == state_size)
+                cached_prompt.assign(tokens.begin(), tokens.begin() + prefix_end);
+            else { cached_state.clear(); cached_prompt.clear(); }
+        } catch (const std::bad_alloc &) { cached_state.clear(); cached_prompt.clear(); }
+    } else { cached_state.clear(); cached_prompt.clear(); }
+    if (cancelled.load()) throw std::runtime_error("Cancelled");
+    auto last_batch = llama_batch_get_one(tokens.data() + prefix_end, 1);
+    if (llama_decode(context, last_batch) != 0) throw std::runtime_error(cancelled ? "Cancelled" : "Prompt decode failed");
     const auto prompt_end = Clock::now();
     common_params_sampling params;
     params.temp = options.temperature;
@@ -133,9 +164,11 @@ std::string Runtime::generate(const std::string & messages, const std::string & 
     auto result = chat.finish().to_json_oaicompat();
     const auto generation_end = Clock::now();
     result["local_metrics"] = {
-        {"prompt_tokens", tokens.size()}, {"generated_tokens", generated},
+        {"prompt_tokens", tokens.size() - reused}, {"prompt_total_tokens", tokens.size()}, {"reused_prompt_tokens", reused}, {"generated_tokens", generated},
         {"prompt_ms", std::chrono::duration<double, std::milli>(prompt_end - prompt_start).count()},
         {"generation_ms", std::chrono::duration<double, std::milli>(generation_end - generation_start).count()}
     };
-    return result.dump();
+    auto serialized = result.dump();
+    completed = true;
+    return serialized;
 }

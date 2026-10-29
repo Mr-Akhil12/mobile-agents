@@ -30,5 +30,7 @@ private:
     llama_model * model = nullptr;
     llama_context * context = nullptr;
     common_chat_templates_ptr templates;
+    std::vector<llama_token> cached_prompt;
+    std::vector<uint8_t> cached_state;
     void release();
 };
