@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <stdexcept>
 #include <thread>
+#include <chrono>
+#include <cmath>
 
 Runtime::~Runtime() { release(); }
 void Runtime::release() {
@@ -48,17 +50,28 @@ void Runtime::load(const std::string & path) {
         templates = common_chat_templates_init(model, "");
     } catch (...) { release(); throw; }
 }
+bool Runtime::supports_thinking() {
+    std::lock_guard<std::mutex> lock(mutex);
+    return templates && common_chat_templates_support_enable_thinking(templates.get());
+}
 std::string Runtime::generate(const std::string & messages, const std::string & tools,
-                             const std::function<void(const std::string &)> & on_content) {
+                             const std::function<void(const std::string &)> & on_content,
+                             const GenerationOptions & options) {
     std::lock_guard<std::mutex> lock(mutex);
     if (!context) throw std::runtime_error("Import and load a text GGUF first");
+    if (!std::isfinite(options.temperature) || options.temperature < 0 || options.temperature > 2 ||
+        options.max_tokens < 64 || options.max_tokens > 1536 || options.top_k < 1 || options.top_k > 100 ||
+        !std::isfinite(options.repeat_penalty) || options.repeat_penalty < 1 || options.repeat_penalty > 1.5f)
+        throw std::runtime_error("Generation settings out of supported range");
+    if (options.thinking && !common_chat_templates_support_enable_thinking(templates.get()))
+        throw std::runtime_error("Loaded model template does not support thinking control");
     cancelled.store(false);
     common_chat_templates_inputs input;
     input.messages = common_chat_msgs_parse_oaicompat(common_json::parse(messages));
     input.tools = common_chat_tools_parse_oaicompat(common_json::parse(tools));
-    input.enable_thinking = false;
+    input.enable_thinking = options.thinking;
     input.reasoning_format = COMMON_REASONING_FORMAT_DEEPSEEK;
-    input.chat_template_kwargs["enable_thinking"] = "false";
+    input.chat_template_kwargs["enable_thinking"] = options.thinking ? "true" : "false";
     const auto * vocab = llama_model_get_vocab(model);
     common_chat_session chat(templates.get(), vocab, input);
     std::vector<llama_token> tokens;
@@ -66,20 +79,23 @@ std::string Runtime::generate(const std::string & messages, const std::string & 
         auto next = common_tokenize(vocab, part.text, false, !part.is_input);
         tokens.insert(tokens.end(), next.begin(), next.end());
     }
-    constexpr int budget = 512;
+    const int budget = options.max_tokens;
     if (tokens.empty() || tokens.size() + budget > llama_n_ctx(context))
         throw std::runtime_error("Context full: start a new chat or use a shorter prompt");
     llama_memory_clear(llama_get_memory(context), true);
+    using Clock = std::chrono::steady_clock;
+    const auto prompt_start = Clock::now();
     for (size_t offset = 0; offset < tokens.size(); offset += 256) {
         if (cancelled.load()) throw std::runtime_error("Cancelled");
         auto count = std::min<size_t>(256, tokens.size() - offset);
         auto batch = llama_batch_get_one(tokens.data() + offset, static_cast<int>(count));
         if (llama_decode(context, batch) != 0) throw std::runtime_error(cancelled ? "Cancelled" : "Prompt decode failed");
     }
+    const auto prompt_end = Clock::now();
     common_params_sampling params;
-    params.temp = 0.1f;
-    params.top_k = 50;
-    params.penalty_repeat = 1.1f;
+    params.temp = options.temperature;
+    params.top_k = options.top_k;
+    params.penalty_repeat = options.repeat_penalty;
     params.seed = 42;
     chat.apply_sampling(params);
     common_sampler_ptr sampler(common_sampler_init(model, params));
@@ -87,11 +103,14 @@ std::string Runtime::generate(const std::string & messages, const std::string & 
     std::string last;
     std::string raw;
     bool ended = false;
+    int generated = 0;
+    const auto generation_start = Clock::now();
     for (int i = 0; i < budget; ++i) {
         if (cancelled.load()) throw std::runtime_error("Cancelled");
         auto token = common_sampler_sample(sampler.get(), context, -1);
         common_sampler_accept(sampler.get(), token, true);
         if (llama_vocab_is_eog(vocab, token)) { ended = true; break; }
+        ++generated;
         auto piece = common_token_to_piece(vocab, token, true);
         raw += piece;
         bool stop = false;
@@ -110,7 +129,13 @@ std::string Runtime::generate(const std::string & messages, const std::string & 
         auto batch = llama_batch_get_one(&token, 1);
         if (llama_decode(context, batch) != 0) throw std::runtime_error(cancelled ? "Cancelled" : "Token decode failed");
     }
-    if (!ended) throw std::runtime_error("Generation reached 512-token limit; incomplete output rejected");
+    if (!ended) throw std::runtime_error("Generation reached " + std::to_string(budget) + "-token limit; incomplete output rejected");
     auto result = chat.finish().to_json_oaicompat();
+    const auto generation_end = Clock::now();
+    result["local_metrics"] = {
+        {"prompt_tokens", tokens.size()}, {"generated_tokens", generated},
+        {"prompt_ms", std::chrono::duration<double, std::milli>(prompt_end - prompt_start).count()},
+        {"generation_ms", std::chrono::duration<double, std::milli>(generation_end - generation_start).count()}
+    };
     return result.dump();
 }

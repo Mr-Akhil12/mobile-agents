@@ -1,6 +1,6 @@
 # Xiaomi text-first validation handoff
 
-Deadline: **Friday 30 October 2026, 16:00 SAST**. This handoff is prepared; physical validation has not happened. Keep Omni voice integration gated until the native text smoke results are returned and P0 failures addressed. A CI pass alone cannot close the gate.
+Deadline: **Friday 30 October 2026, 16:00 SAST**. The user reports the first APK worked perfectly on Xiaomi 15T using an existing Termux-downloaded model. Exact installed hash and individual acceptance observations are still unconfirmed; see the results record. Keep Omni voice integration gated until the native text smoke results are returned and P0 failures addressed. A CI pass alone cannot close the gate.
 
 ## Exact candidate
 

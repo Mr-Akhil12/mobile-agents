@@ -1,6 +1,6 @@
 # Durable continuation checkpoint — 29 October 2026
 
-Read this and MASTER_PLAN.md in full before editing. Deadline: **Friday 30 October 2026, 16:00 SAST**. Text first. **Initial Xiaomi smoke is user-reported successful; detailed acceptance remains pending; Omni voice remains held until text/device gate review.** No merge, verified release tag, paid services, model weights or private logs are authorized.
+Read this and MASTER_PLAN.md in full before editing. Deadline: **Friday 30 October 2026, 16:00 SAST**. Text first. **Initial Xiaomi smoke is user-reported successful; detailed acceptance remains pending; Omni voice remains held until text/device gate review.** User now authorizes merging PRs after successful tests. No verified release tag, paid services, model weights or private logs are authorized.
 
 ## Verified candidate and actual CI
 
@@ -28,3 +28,13 @@ Compiler caching is opt-in and bounded to 1 GB. Latest cached x86_64 build took 
 ## Autonomy and limits
 
 User removed the 5% safety-stop requirement. Continue useful authorized work within actual account limits; no live usage/reset telemetry is exposed. Never invent percentages or reset status, buy credits, or bypass limits. The scheduled **29 October 03:55 SAST** continuation is a conservative retry, not evidence of quota reset. Checkpoint actual outcomes frequently. Stop for actual limits, necessary external blockers, completion or new instructions.
+
+## Current chat experience implementation — pending fresh CI
+
+User requested ChatGPT-like local UX after reporting the first APK worked perfectly. PR #1 merged at bef78e7f4d9a47bcfd45227863014b0f1285bb1c. PR #2 branding head 44510c9 passed ARM64 run 40805455611 and all 18 emulator checks in 40805455677. Local Agents 0.1.1 APK artifact 12867982572 / checkout 16f98896371bbd1bb5b3370a093a45aaaa99ecff / SHA-256 3bc9e6dad96df689a38efc054589de083bee646701daeaf52b6f5a9f604ab3cb. Debug certificate changed; keep the first installation/data if Android rejects an update. PR #2 was retargeted to main; a concurrent user README title edit caused a merge conflict. Commit 37f8b84ecff65e1c8042696f3aaba986df6dbc54 merges main while retaining that description as a tagline and Local Agents branding. Inspect its current CI before merging PR #2.
+
+Separate feature/chat-controls-memory adds live monotonic prompt timing, collapsed tool request/evidence cards, measured native ingestion/generation token rates across tool/repair calls, persisted temperature/token-budget/top-k/repetition controls and a capability-gated thinking toggle. A token budget covers all generated output including hidden reasoning; no separate unsupported reasoning-level claim is made. Reasoning stays hidden; tool permissions/budget remain unchanged.
+
+Room already used SQLite. Version 2 adds explicit conversations and editable user-saved memory plus per-answer native metrics, with a non-destructive v1→v2 migration. New chats isolate context; the last selected chat survives restart. Clear chat removes its rows/title, while saved memory is separately editable/deletable. Recent four completed turns and up to 6,000 characters of explicit saved notes are included; no automatic semantic recall or internet research is claimed. Default inference behavior remains thinking off / temperature 0.1 / 512 tokens. No voice changes.
+
+Fresh tests must verify real configured JNI metrics/bounds, v1 migration and note persistence/edit/delete, conversation isolation and actual saved-memory model recall, plus the real Compose controls/memory/tool dropdown flow. Existing real-model import/cancel/rotation/restart suite remains. Do not call these new checks passed until actual CI completes. Retrieve the generated Room schema from the emulator evidence artifact and commit it after successful compilation.
