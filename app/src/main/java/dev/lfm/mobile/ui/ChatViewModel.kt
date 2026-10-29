@@ -6,6 +6,12 @@ import android.os.SystemClock
 import dev.lfm.mobile.data.*
 import dev.lfm.mobile.inference.GenerationSettings
 import dev.lfm.mobile.inference.InferenceMetrics
+import dev.lfm.mobile.inference.VoiceModelStore
+import dev.lfm.mobile.inference.VoicePart
+import dev.lfm.mobile.voice.MicrophoneCapture
+import dev.lfm.mobile.voice.OfflineSpeaker
+import org.json.JSONObject
+import dev.lfm.mobile.updates.UpdateManager
 import java.util.UUID
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -22,7 +28,9 @@ import kotlinx.coroutines.flow.*
 data class ChatState(val busy: Boolean = false, val loaded: Boolean = false,
     val status: String = "Import the official text GGUF to begin", val streaming: String = "",
     val startedAtMs: Long = 0, val elapsedMs: Long = 0, val metrics: InferenceMetrics? = null,
-    val supportsThinking: Boolean = false, val working: Boolean = false)
+    val supportsThinking: Boolean = false, val working: Boolean = false,
+    val recording: Boolean = false, val voiceBusy: Boolean = false, val speaking: Boolean = false,
+    val transcript: String = "", val transcriptId: Long = 0)
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ChatViewModel(application: Application) : AndroidViewModel(application) {
@@ -43,6 +51,15 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     val settings = selectedSettings.asStateFlow()
     private val mutable = MutableStateFlow(ChatState())
     val state = mutable.asStateFlow()
+    val voiceModels = VoiceModelStore(application)
+    private val microphone = MicrophoneCapture(application)
+    private var disposed = false
+    private var foreground = true
+    private var speechJob: Job? = null
+    private var voiceReplyPending = false
+    private var speakerInstance: OfflineSpeaker? = null
+    private fun speaker(): OfflineSpeaker = speakerInstance ?: OfflineSpeaker(getApplication()) { value -> mutable.update { it.copy(speaking = value) } }.also { speakerInstance = it }
+    val updates = UpdateManager(application, viewModelScope)
     private var job: Job? = null
     init {
         viewModelScope.launch { dao.createConversation(Conversation(DEFAULT_CONVERSATION, "Earlier conversation")) }
@@ -61,16 +78,18 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
         if (state.value.busy) return
         viewModelScope.launch {
             val id = UUID.randomUUID().toString()
+            voiceReplyPending = false
             dao.createConversation(Conversation(id, "New chat")); current.value = id
             chatPrefs.edit().putString("conversation", id).apply()
-            mutable.update { it.copy(streaming = "", metrics = null, elapsedMs = 0, startedAtMs = 0, status = if (it.loaded) "Ready" else it.status) }
+            mutable.update { it.copy(streaming = "", metrics = null, elapsedMs = 0, startedAtMs = 0, transcript = "", status = if (it.loaded) "Ready" else it.status) }
         }
     }
     fun selectConversation(id: String) {
         if (state.value.busy) return
+        voiceReplyPending = false
         current.value = id
         chatPrefs.edit().putString("conversation", id).apply()
-        mutable.update { it.copy(streaming = "", metrics = null, elapsedMs = 0, startedAtMs = 0) }
+        mutable.update { it.copy(streaming = "", metrics = null, elapsedMs = 0, startedAtMs = 0, transcript = "") }
     }
     fun saveMemory(text: String, id: Long? = null) {
         if (state.value.busy || text.isBlank() || text.length > 1000) return
@@ -109,6 +128,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun send(text: String) {
         if (text.isBlank() || state.value.busy || !state.value.loaded) return
+        speechJob?.cancel(); speakerInstance?.stop()
+        val readAloud = voiceReplyPending; voiceReplyPending = false
         job = viewModelScope.launch {
             val started = SystemClock.elapsedRealtime()
             val conversation = current.value
@@ -119,6 +140,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
                 agent.answer(text.trim(), ::status, { value -> mutable.update { it.copy(streaming = value) } },
                     settings = snapshot, conversationId = conversation, memory = dao.allMemories().map { it.content },
                     metrics = { measured -> mutable.update { it.copy(metrics = measured) } })
+                if (readAloud && foreground) dao.inConversation(conversation).lastOrNull { it.role == "assistant" }?.let { reply -> speechJob = viewModelScope.launch { status(speaker().speak(reply.content)) } }
             }
             catch (e: CancellationException) { status("Cancelled"); throw e }
             catch (e: Exception) {
@@ -127,7 +149,59 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             } finally { mutable.update { it.copy(busy = false, working = false, streaming = "", elapsedMs = SystemClock.elapsedRealtime() - started) } }
         }
     }
-    fun cancel() { job?.cancel(); InferenceRepository.cancel(); status("Stopping") }
+    fun cancel() { job?.cancel(); speechJob?.cancel(); microphone.stop(); speakerInstance?.stop(); InferenceRepository.cancel(); status("Stopping") }
+    fun microphoneDenied() { status("Microphone permission denied. Typed chat still works.") }
+    fun finishVoiceRecording() { microphone.stop() }
+    fun onForeground(value: Boolean) { foreground = value; if (value) updates.checkIfDue(); if (!value) { speechJob?.cancel(); speakerInstance?.stop(); if (state.value.voiceBusy) cancel() } }
+    fun importVoice(part: VoicePart, uri: Uri) {
+        if (state.value.busy) return
+        job = viewModelScope.launch {
+            mutable.update { it.copy(busy = true, status = "Verifying ${part.filename}") }
+            try {
+                InferenceRepository.unloadVoice()
+                voiceModels.import(part, uri) { bytes -> status("Importing voice: ${bytes * 100 / part.bytes}% · checking SHA-256") }
+                status(if (voiceModels.ready) "Omni pair verified · ready for voice" else "Voice file verified; import the other paired file")
+            } catch (e: CancellationException) { status("Voice import cancelled"); throw e }
+            catch (e: Exception) { status(e.message ?: "Voice import failed") }
+            finally { mutable.update { it.copy(busy = false) } }
+        }
+    }
+    fun startVoice() {
+        if (state.value.busy) return
+        if (!voiceModels.ready) { status("Import both pinned Omni files from Models first"); return }
+        if (getApplication<Application>().checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) { microphoneDenied(); return }
+        speakerInstance?.stop()
+        job = viewModelScope.launch {
+            var finalStatus = "Voice cancelled"
+            mutable.update { it.copy(busy = true, loaded = false, voiceBusy = true, recording = false, status = "Preparing local Omni voice model") }
+            try {
+                val rate = InferenceRepository.loadVoice(voiceModels.file(VoicePart.MODEL).path, voiceModels.file(VoicePart.PROJECTOR).path)
+                mutable.update { it.copy(recording = true, status = "Listening · tap Stop recording when finished") }
+                val audio = microphone.capture(rate) { seconds -> status(String.format(java.util.Locale.US, "Listening %.1f s · tap Stop recording", seconds)) }
+                mutable.update { it.copy(recording = false, status = "Transcribing locally with Omni") }
+                val result = try { JSONObject(InferenceRepository.transcribe(audio, rate)) } finally { audio.fill(0f) }
+                currentCoroutineContext().ensureActive()
+                val transcript = result.getString("transcript").trim()
+                check(transcript.isNotBlank()) { "No transcript returned" }
+                voiceReplyPending = true
+                mutable.update { it.copy(transcript = transcript, transcriptId = it.transcriptId + 1) }
+                finalStatus = "Transcript ready · review and send. Spoken reply requires an offline Android voice."
+            } catch (e: CancellationException) { finalStatus = "Voice cancelled"; throw e }
+            catch (e: Exception) { finalStatus = e.message ?: "Voice recognition failed" }
+            finally {
+                microphone.stop()
+                withContext(NonCancellable) {
+                    InferenceRepository.unloadVoice()
+                    if (!disposed && models.model.isFile) {
+                        status("Restoring text model")
+                        try { InferenceRepository.load(models.model.path); val supports = InferenceRepository.supportsThinking(); mutable.update { it.copy(loaded = true, supportsThinking = supports) } }
+                        catch (e: Exception) { finalStatus += " · Text model reload failed: ${e.message}" }
+                    }
+                    mutable.update { it.copy(busy = false, voiceBusy = false, recording = false, status = finalStatus) }
+                }
+            }
+        }
+    }
     fun clear() { if (!state.value.busy) viewModelScope.launch { dao.clearChat(current.value); status("History cleared") } }
     fun removeModel() {
         if (state.value.busy) return
@@ -138,5 +212,5 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
             finally { mutable.update { it.copy(busy = false) } }
         }
     }
-    override fun onCleared() { InferenceRepository.cancel(); super.onCleared() }
+    override fun onCleared() { disposed = true; updates.cancel(); microphone.stop(); speakerInstance?.close(); InferenceRepository.cancel(); super.onCleared() }
 }

@@ -1,0 +1,80 @@
+name: Publish signed prototype
+on:
+  workflow_dispatch:
+    inputs:
+      version_code:
+        description: 'New Android versionCode, strictly greater than previous published builds'
+        required: true
+        type: string
+      version_name:
+        description: 'Prototype version, e.g. 0.4.0'
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: permanent-prototype-publication
+  cancel-in-progress: false
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: '17.0.21+9'
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+        with:
+          packages: platform-tools
+      - name: Install pinned toolchain
+        run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'ndk;28.0.13004108' 'cmake;3.22.1'
+      - name: Build and validate using permanent signing identity
+        env:
+          KEY_BASE64: ${{ secrets.LOCAL_AGENTS_KEYSTORE_BASE64 }}
+          LFM_SIGNING_PASSWORD: ${{ secrets.LOCAL_AGENTS_KEYSTORE_PASSWORD }}
+          VERSION_CODE: ${{ inputs.version_code }}
+          VERSION_NAME: ${{ inputs.version_name }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION_CODE" =~ ^[1-9][0-9]{0,8}$ ]]
+          [[ "$VERSION_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]
+          test -n "$KEY_BASE64" && test -n "$LFM_SIGNING_PASSWORD"
+          test "$(git -C vendor/llama.cpp rev-parse HEAD)" = 522021325546ea322b0b1e58a50f9dbf03a5f197
+          sha256sum -c gradle/wrapper/gradle-wrapper.jar.sha256
+          export LFM_SIGNING_STORE_FILE="$RUNNER_TEMP/local-agents.p12"
+          trap 'rm -f "$LFM_SIGNING_STORE_FILE"' EXIT
+          umask 077
+          printf '%s' "$KEY_BASE64" | base64 --decode > "$LFM_SIGNING_STORE_FILE"
+          unset KEY_BASE64
+          ./gradlew --no-daemon :app:assembleDebug :app:testDebugUnitTest :app:lintDebug -PlfmVersionCode="$VERSION_CODE" -PlfmVersionName="$VERSION_NAME" --console=plain
+          mkdir publication
+          cp app/build/outputs/apk/debug/app-debug.apk publication/Local_Agents.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs publication/Local_Agents.apk > publication/SIGNATURE.txt
+          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 -v 4 publication/Local_Agents.apk > publication/ALIGNMENT.txt
+          python scripts/create-update-manifest.py publication/Local_Agents.apk --tools "$ANDROID_HOME/build-tools/35.0.0" --output publication/local-agents-update.json
+          git rev-parse HEAD > publication/SOURCE_COMMIT
+          git rev-parse HEAD^{tree} > publication/SOURCE_TREE
+      - name: Publish complete prototype assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION_CODE: ${{ inputs.version_code }}
+          VERSION_NAME: ${{ inputs.version_name }}
+        run: |
+          set -euo pipefail
+          TAG="prototype-v${VERSION_NAME}-${VERSION_CODE}"
+          if gh release view "$TAG" >/dev/null 2>&1; then echo 'Release already exists; use a new version.'; exit 1; fi
+          cat > "$RUNNER_TEMP/prototype-notes.md" <<'EOF'
+          Signed Local Agents private testing prototype. No verified release claim.
+          Inference and local data remain on-device. Voice hardware/offline voice-pack acceptance requires physical-device testing.
+          First migration from an old ephemeral debug signature requires a reinstall; ordinary future same-key upgrades preserve app data.
+          EOF
+          gh release create "$TAG" publication/* --target "$GITHUB_SHA" --title "Local Agents $VERSION_NAME prototype" --notes-file "$RUNNER_TEMP/prototype-notes.md" --draft --prerelease
+          gh release edit "$TAG" --draft=false

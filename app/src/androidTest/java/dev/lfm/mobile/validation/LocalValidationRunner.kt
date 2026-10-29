@@ -208,8 +208,8 @@ class LocalValidationRunner : Instrumentation() {
         step("actual_Android_clock_battery_and_policy") {
             val permissions = targetContext.packageManager.getPackageInfo(
                 targetContext.packageName, PackageManager.GET_PERMISSIONS).requestedPermissions.orEmpty()
-            check("android.permission.INTERNET" !in permissions)
-            check("android.permission.RECORD_AUDIO" !in permissions)
+            check("android.permission.INTERNET" in permissions)
+            check("android.permission.RECORD_AUDIO" in permissions)
             evidence.put("requestedPermissions", JSONArray(permissions.toList()))
             val tools = ToolRegistry(targetContext)
             val clock = tools.execute("get_local_time", "{}", "emulator-clock")

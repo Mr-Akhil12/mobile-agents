@@ -21,3 +21,6 @@ __pycache__/
 *.pyc
 validation-evidence/
 !gradle/wrapper/gradle-wrapper.jar
+
+*.p12
+*.pfx
